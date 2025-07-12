@@ -10,17 +10,17 @@ import (
 const (
 	localhost    = "localhost"
 	localTLD     = ".local"
-	cookieBuffer = 60
-	cookieTTL    = 1 * time.Hour
+	CookieBuffer = 60
+	CookieTTL    = 1 * time.Hour
 )
 
 func SetCookie(c *gin.Context, name, value, path, domain string, expires time.Time, httpOnly bool) {
 	if expires.IsZero() {
-		expires = time.Now().Add(cookieTTL)
+		expires = time.Now().Add(CookieTTL)
 	}
 
 	// Compute the max age of the cookie from the expires time
-	maxAge := int(time.Until(expires).Seconds()) + cookieBuffer
+	maxAge := int(time.Until(expires).Seconds()) + CookieBuffer
 
 	// Secure should be true unless the domain is localhost or ends with .local
 	secure := !IsLocalhost(domain)
