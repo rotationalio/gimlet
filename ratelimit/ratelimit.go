@@ -2,7 +2,10 @@ package ratelimit
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/gimlet"
@@ -92,10 +95,24 @@ func New(conf *Config) (limiter Limiter, err error) {
 	case TypeIPAddr:
 		limiter = &ClientIP{conf: *conf}
 	case TypeConstant:
-		limiter = &Constant{conf: *conf}
+		limiter = NewConstant(*conf)
 	case TypeMock:
 		limiter = &Mock{conf: *conf, calls: make(map[string]int)}
 	}
 
 	return limiter, nil
+}
+
+// ParseReset parses the reset header value and returns the timestamp.
+func ParseReset(reset string) (time.Time, error) {
+	if reset == "" {
+		return time.Time{}, nil
+	}
+
+	resetInt, err := strconv.ParseInt(reset, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid reset header value: %w", err)
+	}
+
+	return time.UnixMilli(resetInt), nil
 }

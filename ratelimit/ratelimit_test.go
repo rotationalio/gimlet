@@ -22,6 +22,8 @@ var (
 )
 
 func TestRateLimiter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
 	limiter, err := ratelimit.New(mockConfig)
 	require.NoError(t, err, "expected no error when creating mock limiter")
 
@@ -78,6 +80,24 @@ func TestRateLimiter(t *testing.T) {
 		mock.AssertCalls(t, "Allow", 1)
 	})
 
+	t.Run("NoHeaders", func(t *testing.T) {
+		t.Cleanup(mock.Reset)
+		mock.OnAllow = func(c *gin.Context) (bool, ratelimit.Headers) {
+			return true, nil // No headers set
+		}
+
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+		require.NoError(t, err, "expected no error when creating request")
+		reply, err := ts.Client().Do(req)
+		require.NoError(t, err, "expected no error when sending request")
+
+		require.Equal(t, http.StatusOK, reply.StatusCode, "expected status code 200 OK")
+		require.Empty(t, reply.Header.Get(ratelimit.HeaderLimit), "expected X-RateLimit-Limit header to be empty")
+		require.Empty(t, reply.Header.Get(ratelimit.HeaderRemaining), "expected X-RateLimit-Remaining header to be empty")
+		require.Empty(t, reply.Header.Get(ratelimit.HeaderReset), "expected X-RateLimit-Reset header to be empty")
+
+		mock.AssertCalls(t, "Allow", 1)
+	})
 }
 
 func TestRateLimitConstruct(t *testing.T) {
@@ -143,5 +163,29 @@ func TestRateLimitConstruct(t *testing.T) {
 		require.NoError(t, err, "expected no error when creating ipaddr limiter")
 		_, ok := limiter.(*ratelimit.ClientIP)
 		require.True(t, ok, "expected limiter to be of type ClientIP")
+	})
+}
+
+func TestParseReset(t *testing.T) {
+	t.Run("ValidReset", func(t *testing.T) {
+		reset := "1633036800000" // Example timestamp in milliseconds
+		expectedTime := time.UnixMilli(1633036800000)
+
+		parsedTime, err := ratelimit.ParseReset(reset)
+		require.NoError(t, err, "expected no error when parsing valid reset")
+		require.Equal(t, expectedTime, parsedTime, "expected parsed time to match expected time")
+	})
+
+	t.Run("EmptyReset", func(t *testing.T) {
+		reset := ""
+		parsedTime, err := ratelimit.ParseReset(reset)
+		require.NoError(t, err, "expected no error when parsing empty reset")
+		require.Equal(t, time.Time{}, parsedTime, "expected parsed time to be zero value for empty reset")
+	})
+
+	t.Run("InvalidReset", func(t *testing.T) {
+		reset := "invalid"
+		_, err := ratelimit.ParseReset(reset)
+		require.Error(t, err, "expected error when parsing invalid reset")
 	})
 }
