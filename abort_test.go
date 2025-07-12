@@ -70,7 +70,7 @@ func TestError(t *testing.T) {
 		expected string
 	}{
 		{nil, ""},
-		{gimlet.ErrNoCSRFReferenceCookie, "no csrf reference cookie in request"},
+		{errors.New("no csrf reference cookie in request"), "no csrf reference cookie in request"},
 		{gimlet.ErrorReply{Success: false, Err: "test error"}, "test error"},
 		{"string error", "string error"},
 		{42, "unhandled error response"},

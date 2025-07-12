@@ -3,11 +3,52 @@ package gimlet_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet"
 )
+
+func TestSetCookie(t *testing.T) {
+	t.Run("Localhost", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "http://localhost:8000/test", nil)
+
+		gimlet.SetCookie(c, "foo", "bar", "/test", "localhost", time.Now().Add(173*time.Minute), true)
+		require.Regexp(t, `foo=bar; Path=/test; Domain=localhost; Max-Age=(10438|10439|10440); HttpOnly`, w.Header().Get("Set-Cookie"))
+	})
+
+	t.Run("Secure", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://example.colm/test", nil)
+
+		gimlet.SetCookie(c, "foo", "bar", "/test", "example.com", time.Now().Add(173*time.Minute), true)
+		require.Regexp(t, `foo=bar; Path=/test; Domain=example.com; Max-Age=(10438|10439|10440); HttpOnly; Secure`, w.Header().Get("Set-Cookie"))
+	})
+
+	t.Run("RootPath", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+
+		gimlet.SetCookie(c, "foo", "bar", "", "example.com", time.Now().Add(173*time.Minute), true)
+		require.Regexp(t, `foo=bar; Path=/; Domain=example.com; Max-Age=(10438|10439|10440); HttpOnly; Secure`, w.Header().Get("Set-Cookie"))
+	})
+
+	t.Run("NoExpiration", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+
+		gimlet.SetCookie(c, "foo", "bar", "/test", "example.com", time.Time{}, true)
+		require.Regexp(t, `foo=bar; Path=/test; Domain=example.com; Max-Age=(3658|3659|3660); HttpOnly; Secure`, w.Header().Get("Set-Cookie"))
+	})
+}
 
 func TestIsLocalhost(t *testing.T) {
 	testCases := []struct {
