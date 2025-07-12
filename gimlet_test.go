@@ -66,7 +66,7 @@ func AssertErrorReply(t *testing.T, rep *http.Response, expectedStatus int, expe
 	require.Equal(t, expectedError, data.Err, "expected error message to match")
 }
 
-func readJSON(rep *http.Response) (*gimlet.ErrorReply, error) {
+func ReadJSON(rep *http.Response) (*gimlet.ErrorReply, error) {
 	defer rep.Body.Close()
 	data := &gimlet.ErrorReply{}
 	if err := json.NewDecoder(rep.Body).Decode(&data); err != nil {
