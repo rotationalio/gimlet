@@ -30,7 +30,7 @@ var (
 // and X-RateLimit-Reset. Further, this function also starts a goroutine to clean up the
 // rate limiter cache periodically if the limiter supports it.
 func RateLimit(confOrLimiter any) (_ gin.HandlerFunc, err error) {
-	// Create the limmiter from the configuration.
+	// Create the limiter from the configuration.
 	var limiter Limiter
 	if conf, ok := confOrLimiter.(*Config); ok || confOrLimiter == nil {
 		if limiter, err = New(conf); err != nil {
