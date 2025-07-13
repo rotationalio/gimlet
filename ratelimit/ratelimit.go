@@ -93,7 +93,7 @@ func New(conf *Config) (limiter Limiter, err error) {
 
 	switch conf.Type {
 	case TypeIPAddr:
-		limiter = &ClientIP{conf: *conf}
+		limiter = NewClientIP(*conf)
 	case TypeConstant:
 		limiter = NewConstant(*conf)
 	case TypeMock:

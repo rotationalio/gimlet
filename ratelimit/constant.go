@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func NewConstant(conf Config) *Constant {
 		limit: rate.NewLimiter(rate.Limit(conf.Limit), conf.Burst),
 	}
 
-	limiter.burst = fmt.Sprintf("%d", limiter.limit.Burst())
+	limiter.burst = strconv.Itoa(limiter.limit.Burst())
 	return limiter
 }
 
