@@ -12,6 +12,8 @@ jobs:
   lint:
     name: Go Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       GOPATH: ${{ github.workspace }}/go
       GOBIN: ${{ github.workspace }}/go/bin
@@ -38,6 +40,8 @@ jobs:
   test:
     name: Go Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
       matrix:
