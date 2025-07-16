@@ -30,6 +30,79 @@ func main() {
 
 See the documentation about configuring and using individual middleware.
 
+## Logging
+
+Our logging middleware uses [`github.com/rs/zerolog`](https://github.com/rs/zerolog) instead of the default http logger. It has several helpers to combine logs into a JSON output that can be read by different log tools.
+
+To use the middleware, add your service name and semantic version to each log message:
+
+```go
+router.Use(logger.Logger("myservice", "1.1.0"))
+```
+
+The logger handles errors using the `c.Errors` construct. If there is 1 error, then `log.With().Err(c.Errors()[0])` is used, otherwise `log.With().Errs(c.Errors())` is used. For example:
+
+```go
+func MyHandler(c *gin.Context) {
+    c.Error(errors.New("something bad happened"))
+    c.JSON(http.StatusBadRequest, gin{"error": "could not complete request"})
+}
+```
+
+Will ensure that "something bad happened" is logged with the errrors. Note that 400 errors are `log.Warn`, 500 errors are `log.Error` and all others are `log.Info`.
+
+If you would like to add logs related to a specific request, using the `Tracing` functionality. This will ensure the request ID for all log messages is shared so that you can track a single request across multiple log messages.
+
+```go
+func MyHandler(c *gin.Context) {
+    log := logger.Tracing(c)
+    log.Info().Msg("something happened during this request")
+}
+```
+
+NOTE: this package also provides configuration handlers for decoding log levels with `confire` and for setting GCP levels from zerolog levels. Most log configuration looks like:
+
+```go
+type Config struct {
+    LogLevel     logger.LevelDecoder `split_words:"true" default:"info" desc:"specify the verbosity of logging (trace, debug, info, warn, error, fatal panic)"`
+	ConsoleLog   bool                `split_words:"true" default:"false" desc:"if true logs colorized human readable output instead of json"`
+}
+
+func (c Config) GetLogLevel() zerolog.Level {
+	return zerolog.Level(c.LogLevel)
+}
+```
+
+And then zerolog is configured via:
+
+```go
+func init() {
+	// Initializes zerolog with our default logging requirements
+	zerolog.TimeFieldFormat = time.RFC3339
+	zerolog.TimestampFieldName = logger.GCPFieldKeyTime
+	zerolog.MessageFieldName = logger.GCPFieldKeyMsg
+
+	// Add the severity hook for GCP logging
+	var gcpHook logger.SeverityHook
+	log.Logger = zerolog.New(os.Stdout).Hook(gcpHook).With().Timestamp().Logger()
+}
+
+func NewServer(conf config.Config) {
+    ...
+
+    // Set the global level
+	zerolog.SetGlobalLevel(conf.GetLogLevel())
+
+	// Set human readable logging if configured
+	if conf.ConsoleLog {
+		console := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+		log.Logger = zerolog.New(console).With().Timestamp().Logger()
+	}
+
+    ...
+}
+```
+
 ## Rate Limit
 
 The rate limit middleware prevents abuse to a service where a DDOS or spam attack tries hundreds or thousands of requests per second. The rate limit middleware uses a token bucket approach to rate limiting: the bucket is set to a maximum of "burst" number of tokens; this is the maximum requests per second that is possible. Every second, the bucket is refreshed with a "limit" number of tokens and any request that comes into the service requires a token. If there are 0 tokens, then the request is rejected with a 429 "Too Many Requests" HTTP response.
