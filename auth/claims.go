@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	"go.rtnl.ai/ulid"
 )
@@ -17,6 +20,10 @@ type Claims struct {
 	Gravatar    string   `json:"gravatar,omitempty"`    // Only used for users, not API keys.
 	Roles       []string `json:"roles,omitempty"`       // The roles assigned to a user (not used with API keys).
 	Permissions []string `json:"permissions,omitempty"` // The permissions assigned to the claims.
+}
+
+func (c *Claims) SetSubjectID(sub SubjectType, id ulid.ULID) {
+	c.Subject = fmt.Sprintf("%c%s", sub, id)
 }
 
 func (c Claims) SubjectID() (SubjectType, ulid.ULID, error) {
@@ -75,4 +82,35 @@ func (s SubjectType) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+//===========================================================================
+// JWT Unverified Timestamp Extraction
+//===========================================================================
+
+// Used to extract expiration and not before timestamps without having to use public keys
+var tsparser = jwt.NewParser(jwt.WithoutClaimsValidation())
+
+func ParseUnverified(tks string) (claims *jwt.RegisteredClaims, err error) {
+	claims = &jwt.RegisteredClaims{}
+	if _, _, err = tsparser.ParseUnverified(tks, claims); err != nil {
+		return nil, err
+	}
+	return claims, nil
+}
+
+func ExpiresAt(tks string) (_ time.Time, err error) {
+	var claims *jwt.RegisteredClaims
+	if claims, err = ParseUnverified(tks); err != nil {
+		return time.Time{}, err
+	}
+	return claims.ExpiresAt.Time, nil
+}
+
+func NotBefore(tks string) (_ time.Time, err error) {
+	var claims *jwt.RegisteredClaims
+	if claims, err = ParseUnverified(tks); err != nil {
+		return time.Time{}, err
+	}
+	return claims.NotBefore.Time, nil
 }

@@ -50,6 +50,15 @@ func TestSetCookie(t *testing.T) {
 	})
 }
 
+func TestClearCookie(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+
+	gimlet.ClearCookie(c, "foo", "/test", "example.com", true)
+	require.Regexp(t, `foo=; Path=/test; Domain=example.com; Max-Age=0; HttpOnly; Secure`, w.Header().Get("Set-Cookie"))
+}
+
 func TestIsLocalhost(t *testing.T) {
 	testCases := []struct {
 		domain string
