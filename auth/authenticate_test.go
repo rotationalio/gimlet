@@ -1,0 +1,247 @@
+package auth_test
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"regexp"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
+	"go.rtnl.ai/gimlet/auth"
+	"go.rtnl.ai/ulid"
+)
+
+func TestGetAccessToken(t *testing.T) {
+	mkctx := func(header, cookie string) *gin.Context {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+		if header != "" {
+			c.Request.Header.Set("Authorization", header)
+		}
+
+		if cookie != "" {
+			c.Request.AddCookie(&http.Cookie{Name: auth.AccessTokenCookie, Value: cookie})
+		}
+		return c
+	}
+
+	t.Run("FromHeader", func(t *testing.T) {
+		c := mkctx("Bearer "+accessToken, "")
+		token, err := auth.GetAccessToken(c)
+		require.NoError(t, err, "should retrieve access token from header")
+		require.Equal(t, accessToken, token, "should match access token from header")
+	})
+
+	t.Run("FromCookie", func(t *testing.T) {
+		c := mkctx("", accessToken)
+		token, err := auth.GetAccessToken(c)
+		require.NoError(t, err, "should retrieve access token from cookie")
+		require.Equal(t, accessToken, token, "should match access token from cookie")
+	})
+
+	t.Run("HeaderTakesPrecedence", func(t *testing.T) {
+		c := mkctx("Bearer "+accessToken, "different-cookie-value")
+		token, err := auth.GetAccessToken(c)
+		require.NoError(t, err, "should retrieve access token from header")
+		require.Equal(t, accessToken, token, "should match access token from header")
+	})
+
+	t.Run("CannotParseBearer", func(t *testing.T) {
+		c := mkctx("InvalidBearerToken", "")
+		token, err := auth.GetAccessToken(c)
+		require.Error(t, err, "should return error for invalid bearer token")
+		require.Empty(t, token, "should not return token for invalid bearer token")
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		c := mkctx("", "")
+		token, err := auth.GetAccessToken(c)
+		require.Error(t, err, "should return error for missing token")
+		require.Empty(t, token, "should not return token for missing token")
+	})
+}
+
+func TestGetRefreshToken(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	// Should return an error when no refresh token is set
+	cookie, err := auth.GetRefreshToken(c)
+	require.ErrorIs(t, err, auth.ErrNoRefreshToken, "should return error when no refresh token is set")
+	require.Empty(t, cookie, "should not return a token when no refresh token is set")
+
+	c.Request.AddCookie(&http.Cookie{Name: auth.RefreshTokenCookie, Value: refreshToken})
+	cookie, err = auth.GetRefreshToken(c)
+	require.NoError(t, err, "should retrieve refresh token from cookie")
+	require.Equal(t, refreshToken, cookie, "should match refresh token from cookie")
+}
+
+func TestSetAuthCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accessToken, refreshToken, err := createTokens(&auth.Claims{Name: "Test User"})
+	require.NoError(t, err, "should create tokens successfully")
+
+	mkctx := func() (*gin.Context, *httptest.ResponseRecorder) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		return c, w
+	}
+
+	t.Run("Secure", func(t *testing.T) {
+		c, w := mkctx()
+		err := auth.SetAuthCookies(c, accessToken, refreshToken, "example.com", "auth.example.com")
+		require.NoError(t, err, "should set cookies successfully")
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 4, "expected four cookies to be set")
+
+		accessRE := regexp.MustCompile(`access_token=[a-zA-Z0-9-_.]+; Path=/; Domain=(example.com|auth.example.com); Max-Age=(3599|3600|3601); HttpOnly; Secure`)
+		refreshRE := regexp.MustCompile(`refresh_token=[a-zA-Z0-9-_.]+; Path=/; Domain=(example.com|auth.example.com); Max-Age=(7199|7200|7201); Secure`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, accessRE.MatchString(cookie) || refreshRE.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+
+	t.Run("NonSecure", func(t *testing.T) {
+		c, w := mkctx()
+		err := auth.SetAuthCookies(c, accessToken, refreshToken, "localhost", "auth.local")
+		require.NoError(t, err, "should set cookies successfully")
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 4, "expected four cookies to be set")
+
+		accessRE := regexp.MustCompile(`access_token=[a-zA-Z0-9-_.]+; Path=/; Domain=(localhost|auth.local); Max-Age=(3599|3600|3601); HttpOnly`)
+		refreshRE := regexp.MustCompile(`refresh_token=[a-zA-Z0-9-_.]+; Path=/; Domain=(localhost|auth.local); Max-Age=(7199|7200|7201)`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, accessRE.MatchString(cookie) || refreshRE.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+}
+
+func TestClearAuthCookies(t *testing.T) {
+	mkctx := func() (*gin.Context, *httptest.ResponseRecorder) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		return c, w
+	}
+
+	t.Run("Secure", func(t *testing.T) {
+		c, w := mkctx()
+		auth.ClearAuthCookies(c, "example.com", "auth.example.com")
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 4, "expected four cookies to be cleared")
+
+		accessRE := regexp.MustCompile(`access_token=; Path=/; Domain=(example.com|auth.example.com); Max-Age=0; HttpOnly; Secure`)
+		refreshRE := regexp.MustCompile(`refresh_token=; Path=/; Domain=(example.com|auth.example.com); Max-Age=0; Secure`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, accessRE.MatchString(cookie) || refreshRE.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+
+	t.Run("NonSecure", func(t *testing.T) {
+		c, w := mkctx()
+		auth.ClearAuthCookies(c, "localhost", "auth.local")
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 4, "expected four cookies to be cleared")
+
+		accessRE := regexp.MustCompile(`access_token=; Path=/; Domain=(localhost|auth.local); Max-Age=0; HttpOnly`)
+		refreshRE := regexp.MustCompile(`refresh_token=; Path=/; Domain=(localhost|auth.local); Max-Age=0`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, accessRE.MatchString(cookie) || refreshRE.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+}
+
+//===========================================================================
+// Helper Function to Generate Access and Refresh Tokens
+//===========================================================================
+
+var (
+	initAuth sync.Once
+	pubKey   ed25519.PublicKey
+	privKey  ed25519.PrivateKey
+)
+
+func createTokens(claims *auth.Claims) (accessToken string, refreshToken string, err error) {
+	initAuth.Do(func() {
+		pubKey, privKey, err = ed25519.GenerateKey(rand.Reader)
+	})
+
+	if err != nil {
+		return "", "", err
+	}
+
+	if len(privKey) == 0 || len(pubKey) == 0 {
+		return "", "", errors.New("no keys available")
+	}
+
+	atkn := createAccessToken(claims)
+	rtkn := createRefreshToken(atkn)
+
+	atkn.Header["kid"] = "test-key"
+	rtkn.Header["kid"] = "test-key"
+
+	if accessToken, err = atkn.SignedString(&privKey); err != nil {
+		return "", "", err
+	}
+
+	if refreshToken, err = rtkn.SignedString(&privKey); err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+func createAccessToken(claims *auth.Claims) *jwt.Token {
+	now := time.Now()
+	sub := claims.Subject
+	aud := claims.Audience
+
+	claims.RegisteredClaims = jwt.RegisteredClaims{
+		ID:        ulid.MakeSecure().String(),
+		Subject:   sub,
+		Audience:  aud,
+		Issuer:    "test.dev",
+		IssuedAt:  jwt.NewNumericDate(now),
+		NotBefore: jwt.NewNumericDate(now),
+		ExpiresAt: jwt.NewNumericDate(now.Add(1 * time.Hour)),
+	}
+
+	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+}
+
+func createRefreshToken(accessToken *jwt.Token) *jwt.Token {
+	claims := accessToken.Claims.(*auth.Claims)
+
+	refreshClaims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        claims.ID,
+			Subject:   claims.Subject,
+			Audience:  jwt.ClaimStrings{"test.dev/reauthenticate"},
+			Issuer:    claims.Issuer,
+			IssuedAt:  claims.IssuedAt,
+			NotBefore: jwt.NewNumericDate(claims.ExpiresAt.Add(-15 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(claims.IssuedAt.Add(2 * time.Hour)),
+		},
+	}
+
+	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, refreshClaims)
+}

@@ -103,6 +103,31 @@ func NewServer(conf config.Config) {
 }
 ```
 
+## Quarterdeck & JWT Tokens
+
+### Authentication
+
+### Authorization
+
+### Claims
+
+The `auth.Authenticate` middleware sets the claims on the request so that you can use the claims elsewhere in your service handler. To get the authentication claims:
+
+```go
+func MyHandler(c *gin.Context) {
+    claims, err := auth.GetClaims(c)
+}
+```
+
+The claims will be of type `*auth.Claims` which have the standard rotational claims attached. If you need a generic type of claims that you will type check yourself:
+
+```go
+func MyHandler(c *gin.Context) {
+    // Use whichever key the custom claims were saved on.
+    claims, exists := gimlet.Get(c, gimlet.KeyUserClaims)
+}
+```
+
 ## Rate Limit
 
 The rate limit middleware prevents abuse to a service where a DDOS or spam attack tries hundreds or thousands of requests per second. The rate limit middleware uses a token bucket approach to rate limiting: the bucket is set to a maximum of "burst" number of tokens; this is the maximum requests per second that is possible. Every second, the bucket is refreshed with a "limit" number of tokens and any request that comes into the service requires a token. If there are 0 tokens, then the request is rejected with a 429 "Too Many Requests" HTTP response.

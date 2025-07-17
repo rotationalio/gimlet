@@ -12,7 +12,7 @@ import (
 // Logger returns a new Gin middleware that performs logging for our JSON APIs using
 // zerolog rather than the default Gin logger which is a standard HTTP logger.
 // NOTE: we previously used github.com/dn365/gin-zerolog but wanted more customization.
-func Logger(server, version string) gin.HandlerFunc {
+func Logger(service, version string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Before request
 		started := time.Now()
@@ -23,9 +23,8 @@ func Logger(server, version string) gin.HandlerFunc {
 		}
 
 		// Create a request ID for tracing purposes and add to context
-		// HACK: this creates a shallow copy of the request, which might cause issues?
 		requestID := ulid.Make().String()
-		c.Request = c.Request.WithContext(WithRequestID(c.Request.Context(), requestID))
+		SetRequestID(c, requestID)
 
 		// Handle the request
 		c.Next()
@@ -34,7 +33,7 @@ func Logger(server, version string) gin.HandlerFunc {
 		status := c.Writer.Status()
 		logctx := log.With().
 			Str("path", path).
-			Str("ser_name", server).
+			Str("service", service).
 			Str("version", version).
 			Str("method", c.Request.Method).
 			Dur("resp_time", time.Since(started)).
@@ -57,9 +56,9 @@ func Logger(server, version string) gin.HandlerFunc {
 		var msg string
 		switch len(c.Errors) {
 		case 0, 1:
-			msg = fmt.Sprintf("%s %s %s %d", server, c.Request.Method, c.Request.URL.Path, status)
+			msg = fmt.Sprintf("%s %s %s %d", service, c.Request.Method, c.Request.URL.Path, status)
 		default:
-			msg = fmt.Sprintf("%s %s %s [%d] %d errors occurred", server, c.Request.Method, c.Request.URL.Path, status, len(c.Errors))
+			msg = fmt.Sprintf("%s %s %s [%d] %d errors occurred", service, c.Request.Method, c.Request.URL.Path, status, len(c.Errors))
 		}
 
 		switch {
