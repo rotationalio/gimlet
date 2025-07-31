@@ -19,10 +19,10 @@ func TestClientIP(t *testing.T) {
 	t.Run("Cache", func(t *testing.T) {
 		// Create a new ClientIP limiter with a short cache TTL.
 		limiter := NewClientIP(Config{
-			Type:     TypeIPAddr,
-			Limit:    2.0,
-			Burst:    8,
-			CacheTTL: 100 * time.Millisecond,
+			Type:      TypeIPAddr,
+			PerSecond: 2.0,
+			Burst:     8,
+			CacheTTL:  100 * time.Millisecond,
 		})
 
 		// Test getting/adding IP addresses from multiple go routines.
@@ -71,10 +71,10 @@ func TestClientIP(t *testing.T) {
 	t.Run("LimitSingleIP", func(t *testing.T) {
 		// Ensure that a single IP address can be rate limited while others are not affected.
 		limiter := NewClientIP(Config{
-			Type:     TypeIPAddr,
-			Limit:    4.0,
-			Burst:    16,
-			CacheTTL: 100 * time.Millisecond,
+			Type:      TypeIPAddr,
+			PerSecond: 4.0,
+			Burst:     16,
+			CacheTTL:  100 * time.Millisecond,
 		})
 
 		c, _ := CreateTestContextWithIP(t, "10.15.100.1")
@@ -123,10 +123,10 @@ func TestClientIP(t *testing.T) {
 	t.Run("Cleanup", func(t *testing.T) {
 		// Create a new ClientIP limiter with a short cache TTL.
 		limiter := NewClientIP(Config{
-			Type:     TypeIPAddr,
-			Limit:    10.0,
-			Burst:    5,
-			CacheTTL: 100 * time.Millisecond,
+			Type:      TypeIPAddr,
+			PerSecond: 10.0,
+			Burst:     5,
+			CacheTTL:  100 * time.Millisecond,
 		})
 
 		requests := make([]*gin.Context, 16)

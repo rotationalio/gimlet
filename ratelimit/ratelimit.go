@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/gimlet/noop"
 )
 
 const (
@@ -33,6 +34,11 @@ func RateLimit(confOrLimiter any) (_ gin.HandlerFunc, err error) {
 	// Create the limiter from the configuration.
 	var limiter Limiter
 	if conf, ok := confOrLimiter.(*Config); ok || confOrLimiter == nil {
+		// If rate limiting is disabled, return a noop middleware.
+		if conf != nil && conf.Type == TypeNone {
+			return noop.Noop(), nil
+		}
+
 		if limiter, err = New(conf); err != nil {
 			return nil, err
 		}

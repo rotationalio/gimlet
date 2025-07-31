@@ -16,27 +16,28 @@ const (
 	TypeIPAddr   = "ipaddr"
 	TypeConstant = "constant"
 	TypeMock     = "mock"
+	TypeNone     = "none"
 )
 
 var DefaultConfig = Config{
-	Type:     TypeConstant,
-	Limit:    4.0,
-	Burst:    32,
-	CacheTTL: 10 * time.Minute,
+	Type:      TypeConstant,
+	PerSecond: 4.0,
+	Burst:     32,
+	CacheTTL:  10 * time.Minute,
 }
 
 type Config struct {
-	Type     string        `default:"constant" desc:"type of rate limiter to use; either ipaddr or constant"`
-	Limit    float64       `default:"4.0" desc:"number of tokens that can be added to the ratelimit token bucket per second"`
-	Burst    int           `default:"32" desc:"maximum number of tokens/requests in the ratelimit token bucket"`
-	CacheTTL time.Duration `split_words:"true" default:"10m" desc:"interval at which the ratelimit token bucket is cleaned up, removing old IP addresses"`
+	Type      string        `default:"constant" desc:"type of rate limiter to use; either ipaddr or constant"`
+	PerSecond float64       `default:"32.0" split_words:"true" desc:"number of tokens that can be added to the ratelimit token bucket per second"`
+	Burst     int           `default:"128" desc:"maximum number of tokens/requests in the ratelimit token bucket"`
+	CacheTTL  time.Duration `default:"10m" split_words:"true" desc:"interval at which the ratelimit token bucket is cleaned up, removing old IP addresses"`
 }
 
 func (c Config) Validate() error {
 	switch {
-	case c.Type != TypeIPAddr && c.Type != TypeConstant && c.Type != TypeMock:
+	case c.Type != TypeIPAddr && c.Type != TypeConstant && c.Type != TypeMock && c.Type != TypeNone:
 		return ErrInvalidType
-	case c.Limit <= 0:
+	case c.PerSecond <= 0:
 		return ErrLimitRequired
 	case c.Burst <= 0:
 		return ErrBurstRequired

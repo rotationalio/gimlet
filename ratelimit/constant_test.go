@@ -15,7 +15,7 @@ func TestConstant(t *testing.T) {
 
 	t.Run("Single", func(t *testing.T) {
 		// A single request should be allowed.
-		limit := NewConstant(Config{Limit: 4.0, Burst: 16})
+		limit := NewConstant(Config{PerSecond: 4.0, Burst: 16})
 
 		c, _ := CreateTestContextWithIP(t, "10.15.100.1")
 
@@ -38,7 +38,7 @@ func TestConstant(t *testing.T) {
 	t.Run("Burst", func(t *testing.T) {
 		// Test that multiple requests within the burst limit are allowed.
 		// A single request should be allowed.
-		limit := NewConstant(Config{Limit: 4.0, Burst: 16})
+		limit := NewConstant(Config{PerSecond: 4.0, Burst: 16})
 
 		for i := 0; i < 15; i++ {
 			c, _ := CreateTestContextWithIP(t, "10.15.100."+strconv.Itoa(i+1))
@@ -68,7 +68,7 @@ func TestConstant(t *testing.T) {
 	t.Run("Limit", func(t *testing.T) {
 		// Test that multiple requests within the burst limit are allowed.
 		// A single request should be allowed.
-		limit := NewConstant(Config{Limit: 4.0, Burst: 16})
+		limit := NewConstant(Config{PerSecond: 4.0, Burst: 16})
 
 		for i := 0; i < 64; i++ {
 			c, _ := CreateTestContextWithIP(t, "10.15.100."+strconv.Itoa(i+1))
@@ -102,7 +102,7 @@ func TestConstant(t *testing.T) {
 	t.Run("Block", func(t *testing.T) {
 		// Test that requests are blocked when there is no rate limit available.
 		// A single request should be allowed.
-		limit := NewConstant(Config{Limit: 0, Burst: 0})
+		limit := NewConstant(Config{PerSecond: 0, Burst: 0})
 
 		c, _ := CreateTestContextWithIP(t, "10.15.100.1")
 

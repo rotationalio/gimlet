@@ -14,10 +14,10 @@ import (
 
 var (
 	mockConfig = &ratelimit.Config{
-		Type:     ratelimit.TypeMock,
-		Limit:    10.0,
-		Burst:    5,
-		CacheTTL: 1 * time.Minute,
+		Type:      ratelimit.TypeMock,
+		PerSecond: 10.0,
+		Burst:     5,
+		CacheTTL:  1 * time.Minute,
 	}
 )
 
@@ -143,10 +143,10 @@ func TestRateLimitConstruct(t *testing.T) {
 
 	t.Run("NewConstantLimiter", func(t *testing.T) {
 		limiter, err := ratelimit.New(&ratelimit.Config{
-			Type:     ratelimit.TypeConstant,
-			Limit:    10.0,
-			Burst:    5,
-			CacheTTL: 1 * time.Minute,
+			Type:      ratelimit.TypeConstant,
+			PerSecond: 10.0,
+			Burst:     5,
+			CacheTTL:  1 * time.Minute,
 		})
 		require.NoError(t, err, "expected no error when creating constant limiter")
 		_, ok := limiter.(*ratelimit.Constant)
@@ -155,10 +155,10 @@ func TestRateLimitConstruct(t *testing.T) {
 
 	t.Run("NewClientIPLimiter", func(t *testing.T) {
 		limiter, err := ratelimit.New(&ratelimit.Config{
-			Type:     ratelimit.TypeIPAddr,
-			Limit:    10.0,
-			Burst:    5,
-			CacheTTL: 1 * time.Minute,
+			Type:      ratelimit.TypeIPAddr,
+			PerSecond: 10.0,
+			Burst:     5,
+			CacheTTL:  1 * time.Minute,
 		})
 		require.NoError(t, err, "expected no error when creating ipaddr limiter")
 		_, ok := limiter.(*ratelimit.ClientIP)

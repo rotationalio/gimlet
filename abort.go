@@ -12,7 +12,7 @@ import (
 // Otherwise, it simply aborts with a text response.
 func Abort(c *gin.Context, code int, err any) {
 	switch c.NegotiateFormat(gin.MIMEJSON, gin.MIMEHTML, gin.MIMEPlain) {
-	case gin.MIMEJSON:
+	case gin.MIMEJSON, gin.MIMEHTML:
 		c.AbortWithStatusJSON(code, Error(err))
 	default:
 		c.AbortWithError(code, Error(err))
