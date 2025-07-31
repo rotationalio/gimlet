@@ -23,7 +23,7 @@ type Constant struct {
 func NewConstant(conf Config) *Constant {
 	limiter := &Constant{
 		conf:  conf,
-		limit: rate.NewLimiter(rate.Limit(conf.Limit), conf.Burst),
+		limit: rate.NewLimiter(rate.Limit(conf.PerSecond), conf.Burst),
 	}
 
 	limiter.burst = strconv.Itoa(limiter.limit.Burst())
