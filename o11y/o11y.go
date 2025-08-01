@@ -2,7 +2,7 @@ package o11y
 
 import (
 	"fmt"
-	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +30,7 @@ func Metrics(service string) (_ gin.HandlerFunc, err error) {
 		c.Next()
 
 		// After request
-		status := http.StatusText(c.Writer.Status())
+		status := strconv.Itoa(c.Writer.Status())
 		method := c.Request.Method
 		path := c.Request.URL.Path
 		duration := time.Since(start)
@@ -75,7 +75,7 @@ func registerCollectors(collectors []prometheus.Collector) {
 	// Register the collectors
 	for _, collector := range collectors {
 		if err = prometheus.Register(collector); err != nil {
-			err = fmt.Errorf("cannot register %s", collector)
+			err = fmt.Errorf("cannot register collector of type %T: %w", collector, err)
 			log.Warn().Err(err).Msg("collector already registered")
 		}
 	}

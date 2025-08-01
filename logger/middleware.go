@@ -2,7 +2,7 @@ package logger
 
 import (
 	"fmt"
-	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -80,7 +80,7 @@ func Logger(service, version string, withMetrics bool) gin.HandlerFunc {
 		}
 
 		if withMetrics {
-			statusText := http.StatusText(status)
+			statusText := strconv.Itoa(status)
 			o11y.RequestsHandled.WithLabelValues(service, c.Request.Method, statusText, path).Inc()
 			o11y.RequestDuration.WithLabelValues(service, c.Request.Method, statusText, path).Observe(time.Since(started).Seconds())
 			o11y.RequestSize.WithLabelValues(service, c.Request.Method, statusText, path).Observe(float64(c.Request.ContentLength))
