@@ -2,17 +2,26 @@ package logger
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
+	"go.rtnl.ai/gimlet/o11y"
 	"go.rtnl.ai/ulid"
 )
 
 // Logger returns a new Gin middleware that performs logging for our JSON APIs using
 // zerolog rather than the default Gin logger which is a standard HTTP logger.
 // NOTE: we previously used github.com/dn365/gin-zerolog but wanted more customization.
-func Logger(service, version string) gin.HandlerFunc {
+func Logger(service, version string, withMetrics bool) gin.HandlerFunc {
+	if withMetrics {
+		if err := o11y.Setup(); err != nil {
+			log.Error().Err(err).Msg("failed to setup o11y metrics")
+			withMetrics = false
+		}
+	}
+
 	return func(c *gin.Context) {
 		// Before request
 		started := time.Now()
@@ -68,6 +77,14 @@ func Logger(service, version string) gin.HandlerFunc {
 			logctx.Error().Msg(msg)
 		default:
 			logctx.Info().Msg(msg)
+		}
+
+		if withMetrics {
+			statusText := http.StatusText(status)
+			o11y.RequestsHandled.WithLabelValues(service, c.Request.Method, statusText, path).Inc()
+			o11y.RequestDuration.WithLabelValues(service, c.Request.Method, statusText, path).Observe(time.Since(started).Seconds())
+			o11y.RequestSize.WithLabelValues(service, c.Request.Method, statusText, path).Observe(float64(c.Request.ContentLength))
+			o11y.ResponseSize.WithLabelValues(service, c.Request.Method, statusText, path).Observe(float64(c.Writer.Size()))
 		}
 	}
 }

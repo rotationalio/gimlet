@@ -23,7 +23,7 @@ func TestLogger(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
-	router.Use(logger.Logger("testing", "1.2.3"))
+	router.Use(logger.Logger("testing", "1.2.3", false))
 
 	// This handler returns a 200 OK response
 	router.GET("/ok", func(c *gin.Context) {
