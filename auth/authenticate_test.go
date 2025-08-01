@@ -14,9 +14,77 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+	"go.rtnl.ai/gimlet"
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
 )
+
+func TestAuthenticate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mock := &MockVerifier{}
+	authenticate, err := auth.Authenticate(mock)
+	require.NoError(t, err, "should create authenticate middleware without error")
+
+	t.Run("NoAccessToken", func(t *testing.T) {
+		defer mock.Reset()
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+		authenticate(c)
+		require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+		mock.AssertNotCalled(t, "Verify")
+	})
+
+	t.Run("InvalidAccessToken", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return nil, errors.New("token signned with invalid keys")
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer notauthorizedtobehere")
+
+		authenticate(c)
+		require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+		mock.AssertCalled(t, "Verify", 1)
+
+		claims, err := auth.GetClaims(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthorization, "should return ErrNoAuthorization when access token is invalid")
+		require.Nil(t, claims, "should not set claims in context when access token is invalid")
+
+		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+		require.False(t, exists, "should not set access token in context when access token is invalid")
+		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
+	})
+
+	t.Run("ValidAccessToken", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return &auth.Claims{Name: "testuser"}, nil
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer guywhoworkshere")
+
+		authenticate(c)
+		require.Equal(t, http.StatusOK, w.Code, "should return 200 OK when access token is valid")
+		mock.AssertCalled(t, "Verify", 1)
+
+		claims, err := auth.GetClaims(c)
+		require.NoError(t, err, "should retrieve claims from context")
+		require.Equal(t, "testuser", claims.Name, "should match claims name from access token")
+
+		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+		require.True(t, exists, "should set access token in context")
+		require.Equal(t, "guywhoworkshere", accessToken, "should match access token from header")
+	})
+}
 
 func TestGetAccessToken(t *testing.T) {
 	mkctx := func(header, cookie string) *gin.Context {
@@ -244,4 +312,36 @@ func createRefreshToken(accessToken *jwt.Token) *jwt.Token {
 	}
 
 	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, refreshClaims)
+}
+
+//===========================================================================
+// Mock Authenticator/Reauthenticator for Testing
+//===========================================================================
+
+type MockVerifier struct {
+	calls    map[string]int
+	OnVerify func(accessToken string) (claims *auth.Claims, err error)
+}
+
+func (m *MockVerifier) Verify(accessToken string) (claims *auth.Claims, err error) {
+	m.calls["Verify"]++
+	if m.OnVerify != nil {
+		return m.OnVerify(accessToken)
+	}
+	panic("no Verify() callback defined")
+}
+
+func (m *MockVerifier) Reset() {
+	m.calls = nil
+	m.calls = make(map[string]int)
+	m.OnVerify = nil
+}
+
+func (m *MockVerifier) AssertCalled(t *testing.T, method string, calls int) {
+	require.Contains(t, m.calls, method, "method %s was not called", method)
+	require.Equal(t, calls, m.calls[method], "method %s was called %d times, expected %d", method, m.calls[method], calls)
+}
+
+func (m *MockVerifier) AssertNotCalled(t *testing.T, method string) {
+	require.NotContains(t, m.calls, method, "method %s should not have been called", method)
 }
