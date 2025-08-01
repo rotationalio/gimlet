@@ -34,10 +34,10 @@ See the documentation about configuring and using individual middleware.
 
 Our logging middleware uses [`github.com/rs/zerolog`](https://github.com/rs/zerolog) instead of the default http logger. It has several helpers to combine logs into a JSON output that can be read by different log tools.
 
-To use the middleware, add your service name and semantic version to each log message:
+To use the middleware, add your service name and semantic version to each log message (Note that the last `false` argument is related to Prometheus metrics, discussed in the next section):
 
 ```go
-router.Use(logger.Logger("myservice", "1.1.0"))
+router.Use(logger.Logger("myservice", "1.1.0". false))
 ```
 
 The logger handles errors using the `c.Errors` construct. If there is 1 error, then `log.With().Err(c.Errors()[0])` is used, otherwise `log.With().Errs(c.Errors())` is used. For example:
@@ -101,6 +101,61 @@ func NewServer(conf config.Config) {
 
     ...
 }
+```
+
+## Prometheus Metrics
+
+Gimlet has middleware for collecting HTTP status to expose to [Prometheus](https://prometheus.io/) metrics for observability.
+
+You can quickly and easily get started with the `o11y` middleware as follows:
+
+```go
+metrics, err := olly.Metrics("myservice")
+router.Use(metrics)
+```
+
+NOTE: this isn't the preferred way to enable metrics; if you're also using logging you should enable the metrics in the logging middleware (see below).
+
+This method will setup the Prometheus collectors (returning an error if collectors have already beein registered) and create middleware that will track the number of requests, the response latency in seconds, and the request/response sizes in bytes. All of these metrics are disambiguated by service (as specified in the middleware constructor), HTTP method, status code, and path.
+
+To allow Prometheus to scrape your server for these metrics, you need to add a metrics endpoint, to set this up at `GET /metrics` you can:
+
+```go
+o11y.Routes(router)
+```
+
+Or you can manually register your own route:
+
+```go
+router.GET("/mymetrics", gin.WrapH(promhttp.Handler()))
+```
+
+You should put the metrics as high up the middleware chain as possible to ensure that true latencies and response codes are logged. This is also true of the logging middleware, but you can combine both logging and metrics by enabling metrics in logging:
+
+```go
+router.Use(logger.Logger("myservice", "1.1.0". true))
+```
+
+This is the preferred way to use the middleware in production code.
+
+### Manual use
+
+If you want to include HTTP metrics with other custom metrics, you can use the `Setup` method to initialize and register the collectors in the package:
+
+```go
+if err = olly.Setup(); err != nil {
+    return err
+}
+```
+
+This method is safe to call multiple times and from multiple threads -- it will only setup the collectors once. Once they are setup you can use them directly:
+
+```go
+statusText := strconv.Itoa(status)
+o11y.RequestsHandled.WithLabelValues("myservice", c.Request.Method, statusText, path).Inc()
+o11y.RequestDuration.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(time.Since(started).Seconds())
+o11y.RequestSize.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(float64(c.Request.ContentLength))
+o11y.ResponseSize.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(float64(c.Writer.Size()))
 ```
 
 ## Quarterdeck & JWT Tokens
