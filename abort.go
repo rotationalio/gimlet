@@ -1,9 +1,8 @@
 package gimlet
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin"
+	"go.rtnl.ai/x/api"
 )
 
 // Abort wraps the gin context's Abort method to determine how to respond to middleware
@@ -13,43 +12,8 @@ import (
 func Abort(c *gin.Context, code int, err any) {
 	switch c.NegotiateFormat(gin.MIMEJSON, gin.MIMEHTML, gin.MIMEPlain) {
 	case gin.MIMEJSON, gin.MIMEHTML:
-		c.AbortWithStatusJSON(code, Error(err))
+		c.AbortWithStatusJSON(code, api.Error(err))
 	default:
-		c.AbortWithError(code, Error(err))
+		c.AbortWithError(code, &api.StatusError{StatusCode: code, Reply: api.Error(err)})
 	}
-}
-
-// ErrorReply is a standard error response structure used in Gimlet services.
-type ErrorReply struct {
-	Success bool   `json:"success"`
-	Err     string `json:"error,omitempty"`
-}
-
-// Construct a new response for an error or simply return unsuccessful.
-func Error(err any) ErrorReply {
-	rep := ErrorReply{Success: false}
-	if err == nil {
-		return rep
-	}
-
-	switch err := err.(type) {
-	case error:
-		rep.Err = err.Error()
-	case string:
-		rep.Err = err
-	case fmt.Stringer:
-		rep.Err = err.String()
-	default:
-		rep.Err = "unhandled error response"
-	}
-
-	return rep
-}
-
-func (e ErrorReply) Error() string {
-	return e.Err
-}
-
-func (e ErrorReply) String() string {
-	return e.Err
 }

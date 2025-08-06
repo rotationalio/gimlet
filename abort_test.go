@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/x/api"
 )
 
 func TestAbort(t *testing.T) {
@@ -71,14 +72,14 @@ func TestError(t *testing.T) {
 	}{
 		{nil, ""},
 		{errors.New("no csrf reference cookie in request"), "no csrf reference cookie in request"},
-		{gimlet.ErrorReply{Success: false, Err: "test error"}, "test error"},
+		{&api.StatusError{StatusCode: 400, Reply: api.Reply{Success: false, Error: "test error"}}, "[400] test error"},
 		{"string error", "string error"},
 		{42, "unhandled error response"},
 	}
 
 	for i, tc := range tests {
-		rep := gimlet.Error(tc.err)
+		rep := api.Error(tc.err)
 		require.False(t, rep.Success, "test %d: expected success to be false", i)
-		require.Equal(t, tc.expected, rep.Err, "test %d: expected error message to match", i)
+		require.Equal(t, tc.expected, rep.Error, "test %d: expected error message to match", i)
 	}
 }
