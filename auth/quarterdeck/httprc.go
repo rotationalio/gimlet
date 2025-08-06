@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/gimlet/logger"
 	"go.rtnl.ai/ulid"
 	"go.rtnl.ai/x/httpcc"
@@ -59,7 +60,7 @@ func (s *Quarterdeck) Do(req *http.Request, data interface{}) (rep *http.Respons
 	if rep.StatusCode < 200 || rep.StatusCode >= 300 {
 		// If the status coded is 304 Not Modified, return a use cache error message
 		if rep.StatusCode == http.StatusNotModified {
-			return nil, ErrNotModified
+			return nil, auth.ErrNotModified
 		}
 
 		out := make(map[string]interface{})
