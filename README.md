@@ -160,9 +160,50 @@ o11y.ResponseSize.WithLabelValues("myservice", c.Request.Method, statusText, pat
 
 ## Quarterdeck & JWT Tokens
 
+Gimlet provides middleware to authenticate with our proxy authentication service, Quarterdeck. Quarterdeck issues JWT access and refresh tokens that the gimlet middleware uses to ensure a user's claims were issued by the Quarterdeck server and to check if the claims have the permissions to perform a specific action.
+
 ### Authentication
 
+You'll need a Quarterdeck configuration URL to get started; usually something like `https://auth.rotational.app/.well-known/openid-configuration` -- you can then instantiate the quarterdeck middleware as follows:
+
+```go
+const (
+    quarterdeckURL = "https://auth.rotational.app/.well-known/openid-configuration"
+    audience = "https://myapp.com"
+)
+
+qd, err := quarterdeck.New(quarterdeckURL, audience)
+auth, err := auth.Authenticate(qd)
+```
+
+You can now use the `Login` or `Authenticate` endpoints of Quarterdeck to set authentication cookies or to get an access token to put into the `Authorization` header as a bearer token and this middleware will validate those tokens before allowing the request to be handled further or returns a 401 not authorized error.
+
+The authentication middleware will add the claims to the gin context for handlers to get access to. To fetch the claims use:
+
+```go
+func MyRoute(c *gin.Context) {
+    claims, err := auth.GetClaims(c)
+}
+```
+
 ### Authorization
+
+Authorization checks to make sure the claims have all permissions specified when setting up the middleware. For example, a rest endpoint might be set up as follows:
+
+```go
+tasks := router.Group("/tasks", authenticate)
+{
+    tasks.GET("/", auth.Authorize("tasks:read"), ListTasks)
+    tasks.POST("/", auth.Authorize("tasks:write"), CreateTask)
+    tasks.GET("/:id", auth.Authorize("tasks:read"), TaskDetail)
+    tasks.PUT("/:id", auth.Authorize("tasks:write"), UpdateTask)
+    tasks.DELETE("/:id", auth.Authorize("tasks:write", "tasks:delete"), DeleteTask)
+}
+```
+
+Note that the authentication middleware must be added before any authorize handlers are added to specific routes (to ensure claims are on the context).
+
+If the permission specified isn't in the Permissions of the claims, then a 401 not authorized error is returned.
 
 ### Claims
 
@@ -180,6 +221,43 @@ The claims will be of type `*auth.Claims` which have the standard rotational cla
 func MyHandler(c *gin.Context) {
     // Use whichever key the custom claims were saved on.
     claims, exists := gimlet.Get(c, gimlet.KeyUserClaims)
+}
+```
+
+### Testing
+
+You can use the `authtest` package to write tests against the Authentication middleware without mocking or bypassing the middleware.
+
+```go
+func TestMyRoute(t *testing.T) {
+    srv := authtest.New() // will automatically cleanup the server when the test is complete
+    client := srv.Client()
+
+    qd, err := quarterdeck.New(srv.ConfigURL, authtest.Audience,
+        quarterdeck.WithClient(client),
+        quarterdeck.WithIssuer(authtest.Issuer),
+    )
+    require.NoError(t, err, "could not setup quarterdeck server")
+
+    auth, err := auth.Authenticate(qd)
+    require.NoError(t, err, "could not setup authenticate middleware")
+
+    router.GET("/", auth, MyRoute)
+
+    // Create an access token
+    claims := &auth.Claims{
+        Name: "Test User",
+        Email: "test@example.com",
+        Permissions: ["foo:read", "foo:write"],
+    }
+    claims.SetSubjectID(auth.SubjectUser, ulid.Make())
+
+    accessToken, err := srv.CreateAccessToken(claims)
+	require.NoError(t, err, "could not create access token")
+
+    // Create a new request.
+    req, _ := http.NewRequest(http.MethodGet, "/", nil)
+    req.Header.Set("Authorization", "Bearer "+accessToken)
 }
 ```
 
