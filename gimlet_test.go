@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/x/api"
 )
 
 func TestSetCookie(t *testing.T) {
@@ -108,17 +109,17 @@ func AssertErrorReply(t *testing.T, rep *http.Response, expectedStatus int, expe
 
 	require.Equal(t, expectedStatus, rep.StatusCode, "expected status code to match")
 
-	data := &gimlet.ErrorReply{}
+	data := &api.Reply{}
 	err := json.NewDecoder(rep.Body).Decode(data)
 	require.NoError(t, err, "could not parse response body")
 
 	require.False(t, data.Success, "expected success to be false")
-	require.Equal(t, expectedError, data.Err, "expected error message to match")
+	require.Equal(t, expectedError, data.Error, "expected error message to match")
 }
 
-func ReadJSON(rep *http.Response) (*gimlet.ErrorReply, error) {
+func ReadJSON(rep *http.Response) (*api.Reply, error) {
 	defer rep.Body.Close()
-	data := &gimlet.ErrorReply{}
+	data := &api.Reply{}
 	if err := json.NewDecoder(rep.Body).Decode(&data); err != nil {
 		return nil, err
 	}

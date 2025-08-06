@@ -16,16 +16,6 @@ import (
 	"go.rtnl.ai/ulid"
 )
 
-var (
-	ErrMissingConfigURL  = errors.New("a configuration URL to the openid provider is required")
-	ErrMissingJWKSURL    = errors.New("no jwks uri specified or found in the openid configuration")
-	ErrNotModified       = errors.New("the requested resource has not been modified")
-	ErrUnparsableClaims  = errors.New("the claims in the token could not be parsed as gimlet auth claims")
-	ErrUnknownSigningKey = errors.New("unknown signing key")
-	ErrNoKeyID           = errors.New("token does not have kid in header")
-	ErrInvalidKeyID      = errors.New("invalid key id")
-)
-
 const (
 	// Default timeout for synchronization requests to Quarterdeck.
 	SyncTimeout = 20 * time.Second
@@ -118,14 +108,14 @@ func (s *Quarterdeck) Verify(accessToken string) (claims *auth.Claims, err error
 
 	// I haven't figured out a test that will allow us to reach this case; if you pass
 	// in a token with a different type of claims, it will return an empty auth.Claims.
-	return nil, ErrUnparsableClaims
+	return nil, auth.ErrUnparsableClaims
 }
 
 func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 	// Fetch the kid from the header
 	kid, ok := token.Header["kid"]
 	if !ok {
-		return nil, ErrNoKeyID
+		return nil, auth.ErrNoKeyID
 	}
 
 	// Parse the kid
@@ -135,13 +125,13 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 	}
 
 	if keyID.IsZero() {
-		return nil, ErrInvalidKeyID
+		return nil, auth.ErrInvalidKeyID
 	}
 
 	// Fetch the key from the list of managed keys
 	keys := s.keys.Key(keyID.String())
 	if len(keys) == 0 {
-		return nil, ErrUnknownSigningKey
+		return nil, auth.ErrUnknownSigningKey
 	}
 
 	// If we have multiple keys, return the first one; this should not happen
@@ -180,7 +170,7 @@ func (s *Quarterdeck) Sync() (err error) {
 	// Fetch the OpenID configuration from Quarterdeck
 	if expires, ok := s.expires[s.configURL]; !ok || now.After(expires) {
 		if s.config, err = s.Config(ctx); err != nil {
-			if !errors.Is(err, ErrNotModified) {
+			if !errors.Is(err, auth.ErrNotModified) {
 				// If the error is not a 304 Not Modified, return it
 				return fmt.Errorf("could not fetch OpenID configuration: %w", err)
 			}
@@ -195,7 +185,7 @@ func (s *Quarterdeck) Sync() (err error) {
 	// Fetch the JWKS from Quarterdeck
 	if expires, ok := s.expires[s.jwksURL]; !ok || now.After(expires) {
 		if s.keys, err = s.JWKS(ctx); err != nil {
-			if !errors.Is(err, ErrNotModified) {
+			if !errors.Is(err, auth.ErrNotModified) {
 				// If the error is not a 304 Not Modified, return it
 				return fmt.Errorf("could not fetch JWKS: %w", err)
 			}
@@ -240,7 +230,7 @@ func (s *Quarterdeck) Expires(url string) (expires time.Time, ok bool) {
 // Returns the OpenID configuration by performing a GET request to Quarterdeck.
 func (s *Quarterdeck) Config(ctx context.Context) (out *OpenIDConfiguration, err error) {
 	if s.configURL == "" {
-		return nil, ErrMissingConfigURL
+		return nil, auth.ErrMissingConfigURL
 	}
 
 	var req *http.Request
@@ -258,7 +248,7 @@ func (s *Quarterdeck) Config(ctx context.Context) (out *OpenIDConfiguration, err
 // Returns the JWKS (JSON Web Key Set) by performing a GET request to Quarterdeck.
 func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err error) {
 	if s.jwksURL == "" {
-		return nil, ErrMissingJWKSURL
+		return nil, auth.ErrMissingJWKSURL
 	}
 
 	var req *http.Request
