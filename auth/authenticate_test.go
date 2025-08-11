@@ -86,6 +86,256 @@ func TestAuthenticate(t *testing.T) {
 	})
 }
 
+func TestAuthenticateWithUnauthenticator(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mock := &MockUnauthenticator{}
+	authenticate, err := auth.Authenticate(mock)
+	require.NoError(t, err, "should create authenticate middleware without error")
+
+	t.Run("NoAccessToken", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnNotAuthorized = func(c *gin.Context) error {
+			c.Redirect(http.StatusSeeOther, "/login")
+			return nil
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+		authenticate(c)
+		require.Equal(t, http.StatusSeeOther, w.Code, "should return 303 See Other when no access token is provided")
+		require.Equal(t, "/login", w.Result().Header.Get("Location"), "should redirect to /login when not authorized")
+		mock.AssertNotCalled(t, "Verify")
+		mock.AssertCalled(t, "NotAuthorized", 1)
+
+		claims, err := auth.GetClaims(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthorization, "should return ErrNoAuthorization when access token is invalid")
+		require.Nil(t, claims, "should not set claims in context when access token is invalid")
+
+		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+		require.False(t, exists, "should not set access token in context when access token is invalid")
+		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
+	})
+
+	t.Run("InvalidAccessToken", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnNotAuthorized = func(c *gin.Context) error {
+			c.Redirect(http.StatusSeeOther, "/login")
+			return nil
+		}
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return nil, errors.New("token signned with invalid keys")
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer notauthorizedtobehere")
+
+		authenticate(c)
+		require.Equal(t, http.StatusSeeOther, w.Code, "should return 303 See Other when no access token is provided")
+		require.Equal(t, "/login", w.Result().Header.Get("Location"), "should redirect to /login when not authorized")
+		mock.AssertCalled(t, "Verify", 1)
+		mock.AssertCalled(t, "NotAuthorized", 1)
+
+		claims, err := auth.GetClaims(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthorization, "should return ErrNoAuthorization when access token is invalid")
+		require.Nil(t, claims, "should not set claims in context when access token is invalid")
+
+		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+		require.False(t, exists, "should not set access token in context when access token is invalid")
+		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
+
+	})
+
+	t.Run("HandlerError", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnNotAuthorized = func(c *gin.Context) error {
+			return errors.New("something went wrong")
+		}
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return nil, errors.New("token signned with invalid keys")
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer notauthorizedtobehere")
+
+		authenticate(c)
+		require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+		require.Equal(t, "", w.Result().Header.Get("Location"), "no location header should be set when handler returns an error")
+		mock.AssertCalled(t, "Verify", 1)
+		mock.AssertCalled(t, "NotAuthorized", 1)
+
+		claims, err := auth.GetClaims(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthorization, "should return ErrNoAuthorization when access token is invalid")
+		require.Nil(t, claims, "should not set claims in context when access token is invalid")
+
+		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+		require.False(t, exists, "should not set access token in context when access token is invalid")
+		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
+	})
+
+	t.Run("Authenticated", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnNotAuthorized = func(c *gin.Context) error {
+			c.Redirect(http.StatusSeeOther, "/login")
+			return nil
+		}
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return &auth.Claims{Name: "testuser"}, nil
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer notauthorizedtobehere")
+
+		authenticate(c)
+		require.Equal(t, http.StatusOK, w.Code, "should return 200 OK when access token is valid")
+		mock.AssertCalled(t, "Verify", 1)
+		mock.AssertNotCalled(t, "NotAuthorized")
+	})
+}
+
+func TestAuthenticateWithReauthenticator(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mock := &MockReauthenticator{}
+	authenticate, err := auth.Authenticate(mock)
+	require.NoError(t, err, "should create authenticate middleware without error")
+
+	t.Run("NoAccessToken", func(t *testing.T) {
+		t.Run("NoRefreshToken", func(t *testing.T) {
+			defer mock.Reset()
+			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+				return nil, errors.New("not authorized")
+			}
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+				return nil, errors.New("not allowed")
+			}
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+			authenticate(c)
+
+			require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+			mock.AssertNotCalled(t, "Verify")
+			mock.AssertNotCalled(t, "Refresh")
+		})
+
+		t.Run("WithRefreshToken", func(t *testing.T) {
+			defer mock.Reset()
+			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+				return nil, errors.New("not authorized")
+			}
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+				return nil, errors.New("not allowed")
+			}
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			c.Request.AddCookie(&http.Cookie{Name: auth.RefreshTokenCookie, Value: "spoof-foo"})
+
+			authenticate(c)
+
+			require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+			mock.AssertNotCalled(t, "Verify")
+			mock.AssertNotCalled(t, "Refresh")
+		})
+	})
+
+	t.Run("WithAccessToken", func(t *testing.T) {
+		t.Run("NoRefreshToken", func(t *testing.T) {
+			defer mock.Reset()
+			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+				return nil, errors.New("not authorized")
+			}
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+				if accessToken != "expired-access-token" || refreshToken != "" {
+					panic("unexpected access or refresh token")
+				}
+				return nil, errors.New("not allowed")
+			}
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			c.Request.Header.Set("Authorization", "Bearer expired-access-token")
+
+			authenticate(c)
+
+			require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+			mock.AssertCalled(t, "Verify", 1)
+			mock.AssertNotCalled(t, "Refresh")
+		})
+
+		t.Run("WithRefreshToken", func(t *testing.T) {
+			t.Run("Success", func(t *testing.T) {
+				defer mock.Reset()
+				mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+					return nil, errors.New("not authorized")
+				}
+				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+					if accessToken != "expired-access-token" || refreshToken != "valid-refresh-token" {
+						panic("unexpected access or refresh token")
+					}
+					return &auth.Claims{Name: "testuser"}, nil
+				}
+
+				w := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(w)
+				c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+				c.Request.AddCookie(&http.Cookie{Name: auth.RefreshTokenCookie, Value: "valid-refresh-token"})
+				c.Request.Header.Set("Authorization", "Bearer expired-access-token")
+
+				authenticate(c)
+
+				require.Equal(t, http.StatusOK, w.Code, "should return 200 OK when refresh token is valid")
+				mock.AssertCalled(t, "Verify", 1)
+				mock.AssertCalled(t, "Refresh", 1)
+
+				claims, err := auth.GetClaims(c)
+				require.NoError(t, err, "should retrieve claims from context")
+				require.Equal(t, "testuser", claims.Name, "should match claims name from access token")
+
+				accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
+				require.True(t, exists, "should set access token in context")
+				require.Equal(t, "expired-access-token", accessToken, "access token should match the one provided")
+			})
+
+			t.Run("Error", func(t *testing.T) {
+				defer mock.Reset()
+				mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+					return nil, errors.New("not authorized")
+				}
+				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+					if accessToken != "expired-access-token" || refreshToken != "spoof-foo" {
+						panic("unexpected access or refresh token")
+					}
+					return nil, errors.New("not allowed")
+				}
+
+				w := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(w)
+				c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+				c.Request.AddCookie(&http.Cookie{Name: auth.RefreshTokenCookie, Value: "spoof-foo"})
+				c.Request.Header.Set("Authorization", "Bearer expired-access-token")
+
+				authenticate(c)
+
+				require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
+				mock.AssertCalled(t, "Verify", 1)
+				mock.AssertCalled(t, "Refresh", 1)
+			})
+		})
+	})
+}
+
 func TestGetAccessToken(t *testing.T) {
 	mkctx := func(header, cookie string) *gin.Context {
 		w := httptest.NewRecorder()
@@ -318,30 +568,80 @@ func createRefreshToken(accessToken *jwt.Token) *jwt.Token {
 // Mock Authenticator/Reauthenticator for Testing
 //===========================================================================
 
+type Mock struct {
+	calls map[string]int
+}
+
+func (m *Mock) Reset() {
+	m.calls = nil
+}
+
+func (m *Mock) incr(method string) {
+	if m.calls == nil {
+		m.calls = make(map[string]int)
+	}
+	m.calls[method]++
+}
+
+func (m *Mock) AssertCalled(t *testing.T, method string, calls int) {
+	require.Contains(t, m.calls, method, "method %s was not called", method)
+	require.Equal(t, calls, m.calls[method], "method %s was called %d times, expected %d", method, m.calls[method], calls)
+}
+
+func (m *Mock) AssertNotCalled(t *testing.T, method string) {
+	require.NotContains(t, m.calls, method, "method %s should not have been called", method)
+}
+
 type MockVerifier struct {
-	calls    map[string]int
+	Mock
 	OnVerify func(accessToken string) (claims *auth.Claims, err error)
 }
 
+func (m *MockVerifier) Reset() {
+	m.Mock.Reset()
+	m.OnVerify = nil
+}
+
 func (m *MockVerifier) Verify(accessToken string) (claims *auth.Claims, err error) {
-	m.calls["Verify"]++
+	m.incr("Verify")
 	if m.OnVerify != nil {
 		return m.OnVerify(accessToken)
 	}
 	panic("no Verify() callback defined")
 }
 
-func (m *MockVerifier) Reset() {
-	m.calls = nil
-	m.calls = make(map[string]int)
-	m.OnVerify = nil
+type MockReauthenticator struct {
+	MockVerifier
+	OnRefresh func(accessToken, refreshToken string) (claims *auth.Claims, err error)
 }
 
-func (m *MockVerifier) AssertCalled(t *testing.T, method string, calls int) {
-	require.Contains(t, m.calls, method, "method %s was not called", method)
-	require.Equal(t, calls, m.calls[method], "method %s was called %d times, expected %d", method, m.calls[method], calls)
+func (m *MockReauthenticator) Reset() {
+	m.MockVerifier.Reset()
+	m.OnRefresh = nil
 }
 
-func (m *MockVerifier) AssertNotCalled(t *testing.T, method string) {
-	require.NotContains(t, m.calls, method, "method %s should not have been called", method)
+func (m *MockReauthenticator) Refresh(accessToken, refreshToken string) (claims *auth.Claims, err error) {
+	m.incr("Refresh")
+	if m.OnRefresh != nil {
+		return m.OnRefresh(accessToken, refreshToken)
+	}
+	panic("no Refresh() callback defined")
+}
+
+type MockUnauthenticator struct {
+	MockVerifier
+	OnNotAuthorized func(c *gin.Context) error
+}
+
+func (m *MockUnauthenticator) Reset() {
+	m.MockVerifier.Reset()
+	m.OnNotAuthorized = nil
+}
+
+func (m *MockUnauthenticator) NotAuthorized(c *gin.Context) error {
+	m.incr("NotAuthorized")
+	if m.OnNotAuthorized != nil {
+		return m.OnNotAuthorized(c)
+	}
+	panic("no NotAuthorized() callback defined")
 }

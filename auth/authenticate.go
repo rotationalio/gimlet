@@ -25,40 +25,118 @@ var (
 	ErrRefreshDisabled  = errors.New("reauthentication with refresh tokens disabled")
 )
 
+// Verifies that an access token is valid and returns the claims contained in the token.
 type Authenticator interface {
 	Verify(accessToken string) (*Claims, error)
 }
 
-func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
-	return func(c *gin.Context) {
-		var (
-			err         error
-			accessToken string
-			claims      *Claims
-		)
+// Optional interface that can be implemented by authenticators to reauthenticate the
+// user if the access token is expired and a refresh token is available.
+type Reauthenticator interface {
+	Refresh(accessToken, refreshToken string) (*Claims, error)
+}
 
+// Optional interface that can be implemented by authenticators to provide custom
+// behavior when authentication (and re-authentication) fails such as redirecting
+// to a login page.
+type Unauthenticator interface {
+	NotAuthorized(c *gin.Context) error
+}
+
+type reauthenticatorFunc func(string, string) (*Claims, error)
+type failureHandlerFunc func(*gin.Context) error
+
+func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
+	// Create the inner re-authentication handler that will be used to reauthenticate
+	// the user if the access token is expired and a refresh token is available.
+	var reauthenticate reauthenticatorFunc
+	if ra, ok := auth.(Reauthenticator); ok {
+		reauthenticate = ra.Refresh
+	}
+
+	// Create the authentication handler that will be used to authenticate a request
+	// from the access token in the header or in cookies; reauthenticating if necessary.
+	authenticate := func(c *gin.Context) (claims *Claims, err error) {
 		// Get the access token from the request, either from the header or cookies.
+		var accessToken string
 		if accessToken, err = GetAccessToken(c); err != nil {
-			// TODO: attempt to reauthenticate if the access token is missing.
+			// NOTE: do not attempt to reauthenticate if the access token is not present.
+			// This is because the refresh token can is set and collected in an cookie
+			// that can be accessed by JavaScript, so that it can be used to
+			// reauthenticate via a POST request to the server. However, this makes
+			// cookie based reauthentication insecure, and thus it is not handled
+			// automatically by this middleware.
 			log := logger.Tracing(c)
 			log.Debug().Err(err).Msg("could not retrieve access token")
-			gimlet.Abort(c, http.StatusUnauthorized, ErrAuthRequired)
-			return
+			return nil, ErrAuthRequired
 		}
 
 		// Verify the access token is authorized for use and extract claims.
 		if claims, err = auth.Verify(accessToken); err != nil {
-			// TODO: attempt to reauthenticate if the access token is expired.
 			log := logger.Tracing(c)
 			log.Debug().Err(err).Msg("could not verify access token")
-			gimlet.Abort(c, http.StatusUnauthorized, ErrAuthRequired)
+
+			// Attempt to reauthenticate if a reauthentication handler is available.
+			if reauthenticate != nil {
+				var refreshToken string
+				if refreshToken, err = GetRefreshToken(c); err == nil {
+					if claims, err = reauthenticate(accessToken, refreshToken); err == nil {
+						// Re-authentication successful!
+						gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
+						return claims, nil
+					}
+					log.Debug().Err(err).Msg("could not reauthenticate")
+				}
+				log.Debug().Err(err).Msg("no refresh token available for reauthentication")
+			}
+			return nil, ErrAuthRequired
+		}
+
+		// Authentication successful!
+		gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
+		return claims, nil
+	}
+
+	// Create the login failure handler that will be used if authentication and
+	// re-authentication both fail. By default this handler returns a 401 Unauthorized
+	// and aborts the request. But handlers can also implement the LoginFailure
+	// interface to provide custom behavior such as redirecting to a login page.
+	var onLoginFailure failureHandlerFunc
+	if olf, ok := auth.(Unauthenticator); ok {
+		onLoginFailure = olf.NotAuthorized
+	}
+
+	return func(c *gin.Context) {
+		var (
+			err    error
+			claims *Claims
+		)
+
+		if claims, err = authenticate(c); err != nil {
+			if onLoginFailure != nil {
+				if err = onLoginFailure(c); err != nil {
+					// If the login failure handler returns an error, log it and
+					// return a 401 Unauthorized as the default behavior.
+					log := logger.Tracing(c)
+					log.Debug().Err(err).Msg("login failure handler returned an error")
+					gimlet.Abort(c, http.StatusUnauthorized, ErrAuthRequired)
+					return
+				}
+
+				// Expect that onLoginFailure handled the request with the appropriate
+				// response code and abort if necessary.
+				return
+			}
+
+			// If there is no login failure handler, return a 401 Unauthorized with the
+			// error specified by the authenticator.
+			gimlet.Abort(c, http.StatusUnauthorized, err)
 			return
 		}
 
+		// Authentication successful!
 		// Add claims to context for use in downstream handlers.
 		gimlet.Set(c, gimlet.KeyUserClaims, claims)
-		gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
-
 		c.Next()
 	}, nil
 }
@@ -128,7 +206,9 @@ func SetAuthCookies(c *gin.Context, accessToken, refreshToken string, domains ..
 		// Set the access token cookie: httpOnly is true; cannot be accessed by Javascript
 		c.SetCookie(AccessTokenCookie, accessToken, accessMaxAge, "/", domain, secure, true)
 
-		// Set the refresh token cookie: httpOnly is false; can be accessed by Javascript
+		// Set the refresh token cookie: httpOnly is false; can be accessed by JavaScript
+		// So that the front-end can POST a reauthentication request to the server.
+		// NOTE: this means that an access token is required to reauthenticate.
 		c.SetCookie(RefreshTokenCookie, refreshToken, refreshMaxAge, "/", domain, secure, false)
 	}
 	return nil
