@@ -9,11 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
+	"go.rtnl.ai/x/api"
 )
 
 const (
@@ -23,6 +26,10 @@ const (
 	// Default interval for synchronization of JWKS and OpenID configuration if not
 	// specified by the Expires header.
 	SyncInterval = 1 * time.Hour
+)
+
+var (
+	ErrNoLoginURL = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
 )
 
 // Quarterdeck implements the Authenticator and Reauthenticator interface for the
@@ -45,6 +52,7 @@ type Quarterdeck struct {
 	audience       string
 	issuer         string
 	signingMethods []string
+	loginURL       *LoginURL
 
 	// HTTP requests and Cache Control
 	client  *http.Client
@@ -60,6 +68,7 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 		configURL: configURL,
 		audience:  audience,
 		issuer:    "",
+		loginURL:  &LoginURL{},
 		etag:      make(map[string]string),
 		expires:   make(map[string]time.Time),
 	}
@@ -92,6 +101,8 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 	return qd, nil
 }
 
+// Implements the Authenticator interface to verify access tokens with the JWKS keys
+// fetched from the Quarterdeck server.
 func (s *Quarterdeck) Verify(accessToken string) (claims *auth.Claims, err error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -143,6 +154,34 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 	return keys[0].Key, nil
 }
 
+// Implements the Unauthenticator interface to redirect to the login URL when
+// authentication fails.
+func (s *Quarterdeck) NotAuthorized(c *gin.Context) error {
+	var loginURL string
+	if loginURL = s.loginURL.Location(c); loginURL == "" {
+		return ErrNoLoginURL
+	}
+
+	if IsHTMXRequest(c) {
+		Redirect(c, http.StatusSeeOther, loginURL)
+		c.Abort()
+		return nil
+	}
+
+	// Content Negotiation
+	switch accept := c.NegotiateFormat(binding.MIMEJSON, binding.MIMEHTML); accept {
+	case binding.MIMEJSON:
+		c.AbortWithStatusJSON(http.StatusUnauthorized, api.Error(auth.ErrAuthRequired))
+	case binding.MIMEHTML:
+		c.Redirect(http.StatusSeeOther, loginURL)
+		c.Abort()
+	default:
+		return fmt.Errorf("unhandled negotiated content type %q", accept)
+	}
+
+	return nil
+}
+
 func (s *Quarterdeck) Run() {
 	// Get the expiration time for the JWKS
 	wait := SyncInterval
@@ -178,7 +217,14 @@ func (s *Quarterdeck) Sync() (err error) {
 
 		// Update the local configuration from the fetched configuration
 		if s.config != nil {
-			s.jwksURL = s.config.JWKSURI
+			// Always update the JWKS URL if it changed
+			if s.jwksURL != s.config.JWKSURI {
+				delete(s.expires, s.jwksURL)
+				s.jwksURL = s.config.JWKSURI
+			}
+
+			// If the user did not specify a login URL, use the one from the configuration
+			s.loginURL.Update(s.config.AuthorizationEP)
 		}
 	}
 
