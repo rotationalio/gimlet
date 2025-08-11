@@ -61,7 +61,7 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 		var accessToken string
 		if accessToken, err = GetAccessToken(c); err != nil {
 			// NOTE: do not attempt to reauthenticate if the access token is not present.
-			// This is because the refresh token can is set and collected in an cookie
+			// This is because the refresh token is set and collected in a cookie
 			// that can be accessed by JavaScript, so that it can be used to
 			// reauthenticate via a POST request to the server. However, this makes
 			// cookie based reauthentication insecure, and thus it is not handled
