@@ -155,7 +155,7 @@ func TestAuthenticateWithUnauthenticator(t *testing.T) {
 			return errors.New("something went wrong")
 		}
 		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
-			return nil, errors.New("token signned with invalid keys")
+			return nil, errors.New("token signed with invalid keys")
 		}
 
 		w := httptest.NewRecorder()
