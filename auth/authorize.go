@@ -19,7 +19,24 @@ var (
 // Unauthorized response. If the claims have insufficient permissions, the middleware
 // returns a 403 Forbidden response. The Authorize middleware must be chained following
 // the Authenticate middleware.
-func Authorize(permissions ...string) gin.HandlerFunc {
+//
+// NOTE: pass permissions as strings or fmt.Stringer implementations.
+func Authorize(permissions ...any) gin.HandlerFunc {
+	// Convert the permissions to a slice of strings.
+	perms := make([]string, len(permissions))
+	for i, p := range permissions {
+		var perm string
+		switch v := p.(type) {
+		case string:
+			perm = v
+		case fmt.Stringer:
+			perm = v.String()
+		default:
+			perm = fmt.Sprintf("%v", v)
+		}
+		perms[i] = perm
+	}
+
 	return func(c *gin.Context) {
 		claims, err := GetClaims(c)
 		if err != nil {
@@ -28,7 +45,7 @@ func Authorize(permissions ...string) gin.HandlerFunc {
 			return
 		}
 
-		if !claims.HasAllPermissions(permissions...) {
+		if !claims.HasAllPermissions(perms...) {
 			gimlet.Abort(c, http.StatusForbidden, ErrNotPermitted)
 			return
 		}

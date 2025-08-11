@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,4 +55,23 @@ func TestAuthorize(t *testing.T) {
 		middleware(c)
 		require.Equal(t, 401, w.Code)
 	})
+
+	t.Run("IntsAsPermissions", func(t *testing.T) {
+		c, w := mkctx(fmt.Sprintf("%v", int64(42)))
+		auth.Authorize(int64(42))(c)
+		require.Equal(t, 200, w.Code)
+	})
+
+	t.Run("MockPermission", func(t *testing.T) {
+		permission := MockPermission(1)
+		c, w := mkctx(permission.String())
+		auth.Authorize(permission)(c)
+		require.Equal(t, 200, w.Code)
+	})
+}
+
+type MockPermission uint8
+
+func (m MockPermission) String() string {
+	return "mock:permission"
 }
