@@ -49,7 +49,7 @@ func MyHandler(c *gin.Context) {
 }
 ```
 
-Will ensure that "something bad happened" is logged with the errrors. Note that 400 errors are `log.Warn`, 500 errors are `log.Error` and all others are `log.Info`.
+Will ensure that "something bad happened" is logged with the errors. Note that 400 errors are `log.Warn`, 500 errors are `log.Error` and all others are `log.Info`.
 
 If you would like to add logs related to a specific request, using the `Tracing` functionality. This will ensure the request ID for all log messages is shared so that you can track a single request across multiple log messages.
 
@@ -110,13 +110,13 @@ Gimlet has middleware for collecting HTTP status to expose to [Prometheus](https
 You can quickly and easily get started with the `o11y` middleware as follows:
 
 ```go
-metrics, err := olly.Metrics("myservice")
+metrics, err := o11y.Metrics("myservice")
 router.Use(metrics)
 ```
 
 NOTE: this isn't the preferred way to enable metrics; if you're also using logging you should enable the metrics in the logging middleware (see below).
 
-This method will setup the Prometheus collectors (returning an error if collectors have already beein registered) and create middleware that will track the number of requests, the response latency in seconds, and the request/response sizes in bytes. All of these metrics are disambiguated by service (as specified in the middleware constructor), HTTP method, status code, and path.
+This method will setup the Prometheus collectors (returning an error if collectors have already been registered) and create middleware that will track the number of requests, the response latency in seconds, and the request/response sizes in bytes. All of these metrics are disambiguated by service (as specified in the middleware constructor), HTTP method, status code, and path.
 
 To allow Prometheus to scrape your server for these metrics, you need to add a metrics endpoint, to set this up at `GET /metrics` you can:
 
@@ -143,7 +143,7 @@ This is the preferred way to use the middleware in production code.
 If you want to include HTTP metrics with other custom metrics, you can use the `Setup` method to initialize and register the collectors in the package:
 
 ```go
-if err = olly.Setup(); err != nil {
+if err = o11y.Setup(); err != nil {
     return err
 }
 ```
@@ -340,13 +340,46 @@ func (s *Server) Serve() {
     s.csrf = csrf.NewTokenHandler(1*time.Hour, "/", []string{"example.com"}, secret)
 
     // Add routes one to set the token cookies, one to verify them
-    handler := gin.New()
-    handler.GET("/myform", s.GetForm)
-    handler.POST("/myform", csrf.DoubleCookie(s.csrf), s.PostForm)
+    router := gin.New()
+    router.GET("/myform", s.GetForm)
+    router.POST("/myform", csrf.DoubleCookie(s.csrf), s.PostForm)
 }
 ```
 
 Implement `csrf.TokenHandler` to create your own double cookie generator and verifier.
+
+## Cache Control
+
+The `cache.Control` middleware manages request and response headers for cache control by providing the user an interface to set ETags, LastModified, Expires, and Cache Control directives on objects managed by the middleware. The middleware itself will respond correctly to `If-None-Match`, `If-Last-Modified`, and `If-Unmodified-Since` requests and will set the `Last-Modified`, `Expires`, `ETag`, and `Cache-Control` headers on the outgoing response.
+
+To manage a single object, create a new cache control manager as follows:
+
+```go
+cached := router.Group("/myobj", cache.Control(cache.New("must-revalidate, private")))
+{
+    cached.GET("/", GetObj)
+    cached.PUT("/", PutObj)
+}
+
+func GetObj(c *gin.Context) {
+    c.JSON(http.StatusOk, myobj)
+}
+
+func PutObj(c *gin.Context) {
+    // Set last modified timestamp and max age duration
+    cache.Modified(time.Now(), 8*time.Hour)
+
+    // Compute the ETag from the data
+    data, _ := json.Marshal(myobj)
+    cache.ComputeETag(data)
+
+    c.JSON(http.StatusOk, gin.H{"success": true})
+}
+```
+
+If you would like to manage multiple objects, with the same handler using a map, please open an GitHub issue and let us know that would be useful to you!
+
+Note that the `cache.Control` takes a handler that can be very flexible. See the `ETagger`, `Expirer`, and `CacheController` interfaces for adding your own cache handlers to the middleware. Additionally there are built-in controllers such as `Manager`, `ETag`, `WeakETag`, `Expires`, and `CacheControl` that can give you more fine grained control of the cache settings.
 
 ## About
 

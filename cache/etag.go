@@ -16,19 +16,21 @@ type ETag struct {
 	value string
 }
 
+var _ ETagger = (*ETag)(nil)
+
 func (e *ETag) ETag() string {
 	e.RLock()
 	defer e.RUnlock()
 	return e.value
 }
 
-func (e *ETag) Compute(data []byte) {
+func (e *ETag) ComputeETag(data []byte) {
 	hash := sha1.New()
 	hash.Write(data)
-	e.Set(hex.EncodeToString(hash.Sum(nil)))
+	e.SetETag(hex.EncodeToString(hash.Sum(nil)))
 }
 
-func (e *ETag) Set(value string) {
+func (e *ETag) SetETag(value string) {
 	e.Lock()
 	defer e.Unlock()
 	e.value = value
@@ -44,19 +46,21 @@ type WeakEtag struct {
 	value string
 }
 
+var _ ETagger = (*WeakEtag)(nil)
+
 func (e *WeakEtag) ETag() string {
 	e.RLock()
 	defer e.RUnlock()
 	return e.value
 }
 
-func (e *WeakEtag) Compute(data []byte) {
+func (e *WeakEtag) ComputeETag(data []byte) {
 	hash := md5.New()
 	hash.Write(data)
-	e.Set(hex.EncodeToString(hash.Sum(nil)))
+	e.SetETag(hex.EncodeToString(hash.Sum(nil)))
 }
 
-func (e *WeakEtag) Set(value string) {
+func (e *WeakEtag) SetETag(value string) {
 	value = `W/` + strconv.Quote(value)
 
 	e.Lock()

@@ -103,8 +103,8 @@ github.com/ugorji/go/codec v1.3.0 h1:Qd2W2sQawAfG8XSvzwhBeoGq71zXOC/Q1E9y/wUcsUA
 github.com/ugorji/go/codec v1.3.0/go.mod h1:pRBVtBSKl77K30Bv8R2P+cLSGaTtex6fsA2Wjqmfxj4=
 go.rtnl.ai/ulid v1.1.1 h1:7zDInpWEeiKFcDoJyonails5lQxwOr4wc8K4TAuOVNE=
 go.rtnl.ai/ulid v1.1.1/go.mod h1:F95yPYwEEZdz5sM4GC6buziff6xD+7XVcGZ/8n37Cn0=
-go.rtnl.ai/x v1.6.0 h1:0vf35GyASdX0KND/nsLzJIRis1GrGcC7HTUFA+f7fqo=
-go.rtnl.ai/x v1.6.0/go.mod h1:aYi9mQwZPl+8ny7Hv4vs3wbghJkIeqWXwVYyG8mpqTg=
+go.rtnl.ai/x v1.6.1 h1:XWcYg7sAGd19bG29Pg8omSxjo7HLo66e/Z8dzo3gOzc=
+go.rtnl.ai/x v1.6.1/go.mod h1:aYi9mQwZPl+8ny7Hv4vs3wbghJkIeqWXwVYyG8mpqTg=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 golang.org/x/arch v0.19.0 h1:LmbDQUodHThXE+htjrnmVD73M//D9GTH6wFZjyDkjyU=

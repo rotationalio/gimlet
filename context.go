@@ -16,9 +16,12 @@ const (
 	KeyUserClaims
 	KeyAccessToken
 	KeyCacheControl
+	KeyCacheHandler
 )
 
-var contextKeyNames = [5]string{"unknown", "requestID", "userClaims", "accessToken", "cacheControl"}
+var contextKeyNames = [6]string{
+	"unknown", "requestID", "userClaims", "accessToken", "cacheControl", "cacheHandler",
+}
 
 func (c ContextKey) String() string {
 	if int(c) < len(contextKeyNames) {

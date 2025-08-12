@@ -31,6 +31,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
@@ -54,6 +55,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
@@ -79,6 +81,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
