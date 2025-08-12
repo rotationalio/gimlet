@@ -10,7 +10,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
 	go.rtnl.ai/ulid v1.1.1
-	go.rtnl.ai/x v1.6.0
+	go.rtnl.ai/x v1.6.1
 	golang.org/x/time v0.12.0
 )
 

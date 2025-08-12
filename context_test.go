@@ -30,6 +30,8 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyRequestID, ulid.Make()},
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
+			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
@@ -52,6 +54,8 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyRequestID, ulid.Make()},
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
+			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
@@ -76,6 +80,8 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyRequestID, ulid.Make()},
 			{gimlet.KeyUserClaims, 42},
 			{gimlet.KeyAccessToken, "foo"},
+			{gimlet.KeyCacheControl, "public, max-age=3600"},
+			{gimlet.KeyCacheHandler, true},
 		}
 
 		for _, tc := range tests {
@@ -98,6 +104,7 @@ func TestContext(t *testing.T) {
 		gimlet.Set(c, gimlet.KeyUserClaims, 42)
 		gimlet.SetContext(c, gimlet.KeyUserClaims, 24)
 		gimlet.SetContext(c, gimlet.KeyAccessToken, "foo")
+		gimlet.SetBoth(c, gimlet.KeyCacheControl, "public, max-age=3600")
 
 		// Can get a value from the gin context when it is not on the request context
 		val, exists := gimlet.Get(c, gimlet.KeyRequestID)
