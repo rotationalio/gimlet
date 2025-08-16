@@ -223,6 +223,11 @@ func (s *Quarterdeck) Sync() (err error) {
 				s.jwksURL = s.config.JWKSURI
 			}
 
+			// Update the issuer if it isn't set
+			if s.issuer == "" {
+				s.issuer = s.config.Issuer
+			}
+
 			// If the user did not specify a login URL, use the one from the configuration
 			s.loginURL.Update(s.config.AuthorizationEP)
 		}
