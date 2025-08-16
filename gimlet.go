@@ -1,6 +1,8 @@
 package gimlet
 
 import (
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ func SetCookie(c *gin.Context, name, value, path, domain string, expires time.Ti
 	maxAge := int(time.Until(expires).Seconds()) + CookieBuffer
 
 	// Secure should be true unless the domain is localhost or ends with .local
+	domain = CookieDomain(domain)
 	secure := !IsLocalhost(domain)
 
 	// Ensure the path is set, defaulting to root if empty
@@ -49,4 +52,51 @@ func ClearCookie(c *gin.Context, name, path, domain string, httpOnly bool) {
 
 func IsLocalhost(domain string) bool {
 	return domain == localhost || strings.HasSuffix(domain, localTLD)
+}
+
+var (
+	domainRE = regexp.MustCompile(`^(.+:)?//(.+)$`)
+)
+
+// Converts a URL to an appropriate cookie domain by removing the scheme and path
+// components if necessary as well as any port information. If the URL is not parseable
+// the original domain is returned.
+func CookieDomain(domain string) string {
+	if domain == "" {
+		return ""
+	}
+
+	uri, err := url.Parse(domain)
+	if err != nil {
+		return domain
+	}
+
+	if hostname := uri.Hostname(); hostname != "" {
+		return hostname
+	}
+
+	// Attempt a reparse with prefixing
+	if !domainRE.MatchString(domain) {
+		return CookieDomain("//" + domain)
+	}
+
+	// Otherwise just return the original domain
+	return domain
+}
+
+// Normalize and deduplicate multiple cookie domains
+func CookieDomains(domain ...string) []string {
+	cookieDomains := make(map[string]struct{})
+	for _, d := range domain {
+		cookieDomains[CookieDomain(d)] = struct{}{}
+	}
+
+	i := 0
+	domain = domain[:len(cookieDomains)]
+	for cd := range cookieDomains {
+		domain[i] = cd
+		i++
+	}
+
+	return domain
 }
