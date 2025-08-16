@@ -51,6 +51,88 @@ func TestNewTokenHandler(t *testing.T) {
 		require.ErrorIs(t, err, csrf.ErrShortSignedCSRFSecret)
 		require.Nil(t, handler)
 	})
+
+	t.Run("CookieDomains", func(t *testing.T) {
+		testCases := []struct {
+			domains  []string
+			expected []string
+		}{
+			{
+				[]string{"https://example.com"},
+				[]string{"example.com"},
+			},
+
+			{
+				[]string{"example.com"},
+				[]string{"example.com"},
+			},
+			{
+				[]string{"https://example.com", "https://auth.example.com"},
+				[]string{"example.com", "auth.example.com"},
+			},
+			{
+				[]string{"https://example.com", "https://auth.example.com", "https://db.example.com"},
+				[]string{"example.com", "auth.example.com", "db.example.com"},
+			},
+			{
+				[]string{"http://localhost:8000"},
+				[]string{"localhost"},
+			},
+			{
+				[]string{"localhost:8000"},
+				[]string{"localhost"},
+			},
+			{
+				[]string{"localhost:8000", "localhost:8888"},
+				[]string{"localhost"},
+			},
+			{
+				[]string{"localhost:8000", "localhost:8888", "localhost:4444"},
+				[]string{"localhost"},
+			},
+			{
+				[]string{"http://localhost:8000", "http://localhost:8888"},
+				[]string{"localhost"},
+			},
+			{
+				[]string{"http://localhost:8000", "http://localhost:8888", "http://localhost:4444"},
+				[]string{"localhost"},
+			},
+		}
+
+		t.Run("Signed", func(t *testing.T) {
+			secret := make([]byte, 64)
+			_, err := rand.Read(secret)
+			require.NoError(t, err)
+
+			for i, tc := range testCases {
+				handler, err := csrf.NewTokenHandler(5*time.Minute, "", tc.domains, secret)
+				require.NoError(t, err, "test case %d failed", i)
+
+				tokens, ok := handler.(*csrf.SignedCSRFTokens)
+				require.True(t, ok, "Expected a SignedCSRFTokens handler, got %T", handler)
+				require.Len(t, tokens.CookieDomain, len(tc.expected), "test case %d: expected %d cookie domains, got %d", i, len(tc.expected), len(tokens.CookieDomain))
+
+				for _, domain := range tc.expected {
+					require.Contains(t, tokens.CookieDomain, domain, "test case %d: expected domain %s to be in cookie domains", i, domain)
+				}
+			}
+		})
+
+		t.Run("Naive", func(t *testing.T) {
+			for i, tc := range testCases {
+				handler, err := csrf.NewTokenHandler(5*time.Minute, "", tc.domains, nil)
+				require.NoError(t, err, "test case %d failed", i)
+
+				tokens, ok := handler.(*csrf.NaiveCSRFTokens)
+				require.True(t, ok, "Expected a NaiveCSRFTokens handler, got %T", handler)
+
+				for _, domain := range tc.expected {
+					require.Contains(t, tokens.CookieDomain, domain, "test case %d: expected domain %s to be in cookie domains", i, domain)
+				}
+			}
+		})
+	})
 }
 
 func TestSignedCSRFTokens(t *testing.T) {

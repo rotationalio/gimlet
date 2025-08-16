@@ -100,6 +100,122 @@ func TestIsLocalhost(t *testing.T) {
 	}
 }
 
+func TestCookieDomain(t *testing.T) {
+	testCases := []struct {
+		domain   string
+		expected string
+	}{
+		{
+			"", "",
+		},
+		{
+			"http://localhost:8000/test",
+			"localhost",
+		},
+		{
+			"https://example.com/test",
+			"example.com",
+		},
+		{
+			"https://sub.example.com/test",
+			"sub.example.com",
+		},
+		{
+			"ftp://example.com:21/test",
+			"example.com",
+		},
+		{
+			"example.com/test",
+			"example.com",
+		},
+		{
+			"example.com",
+			"example.com",
+		},
+		{
+			"//example.com",
+			"example.com",
+		},
+		{
+			"localhost/test",
+			"localhost",
+		},
+		{
+			"localhost:8000/test",
+			"localhost",
+		},
+		{
+			"localhost:8000",
+			"localhost",
+		},
+		{
+			"//localhost:8000",
+			"localhost",
+		},
+	}
+
+	for i, tc := range testCases {
+		require.Equal(t, tc.expected, gimlet.CookieDomain(tc.domain), "test case %d failed", i)
+	}
+}
+
+func TestCookieDomains(t *testing.T) {
+	testCases := []struct {
+		domains  []string
+		expected []string
+	}{
+		{
+			[]string{"https://example.com"},
+			[]string{"example.com"},
+		},
+
+		{
+			[]string{"example.com"},
+			[]string{"example.com"},
+		},
+		{
+			[]string{"https://example.com", "https://auth.example.com"},
+			[]string{"example.com", "auth.example.com"},
+		},
+		{
+			[]string{"https://example.com", "https://auth.example.com", "https://db.example.com"},
+			[]string{"example.com", "auth.example.com", "db.example.com"},
+		},
+		{
+			[]string{"http://localhost:8000"},
+			[]string{"localhost"},
+		},
+		{
+			[]string{"localhost:8000"},
+			[]string{"localhost"},
+		},
+		{
+			[]string{"localhost:8000", "localhost:8888"},
+			[]string{"localhost"},
+		},
+		{
+			[]string{"localhost:8000", "localhost:8888", "localhost:4444"},
+			[]string{"localhost"},
+		},
+		{
+			[]string{"http://localhost:8000", "http://localhost:8888"},
+			[]string{"localhost"},
+		},
+		{
+			[]string{"http://localhost:8000", "http://localhost:8888", "http://localhost:4444"},
+			[]string{"localhost"},
+		},
+	}
+
+	for i, tc := range testCases {
+		actual := gimlet.CookieDomains(tc.domains...)
+		require.Len(t, actual, len(tc.expected), "test case %d failed", i)
+		for _, domain := range tc.expected {
+			require.Contains(t, actual, domain, "test case %d failed", i)
+		}
+	}
+}
+
 //===========================================================================
 // Test Helpers
 //===========================================================================

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.rtnl.ai/gimlet"
 	"go.rtnl.ai/ulid"
 )
 
@@ -17,6 +18,9 @@ import (
 // If the secret is specified (not nil) then a signed CSRF token handler is returned,
 // otherwise a naive CSRF token handler is returned.
 func NewTokenHandler(cookieTTL time.Duration, path string, domains []string, secret []byte) (TokenHandler, error) {
+	// Deduplicate and normalize domains
+	domains = gimlet.CookieDomains(domains...)
+
 	if secret != nil {
 		handler := &SignedCSRFTokens{
 			CookieTTL:    cookieTTL,
