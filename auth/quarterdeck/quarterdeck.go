@@ -53,6 +53,8 @@ type Quarterdeck struct {
 	issuer         string
 	signingMethods []string
 	loginURL       *LoginURL
+	syncInit       bool
+	runInit        bool
 
 	// HTTP requests and Cache Control
 	client  *http.Client
@@ -71,6 +73,8 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 		loginURL:  &LoginURL{},
 		etag:      make(map[string]string),
 		expires:   make(map[string]time.Time),
+		syncInit:  true,
+		runInit:   true,
 	}
 
 	for _, opt := range opts {
@@ -92,12 +96,17 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 	}
 
 	// Attempt a synchronization of the JWKS and OpenID configuration
-	if err = qd.Sync(); err != nil {
-		return nil, err
+	if qd.syncInit {
+		if err = qd.Sync(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Start the synchronization process in a goroutine
-	qd.Run()
+	if qd.runInit {
+		qd.Run()
+	}
+
 	return qd, nil
 }
 
@@ -137,6 +146,11 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	if keyID.IsZero() {
 		return nil, auth.ErrInvalidKeyID
+	}
+
+	// If no keys have been synced from the server return an error
+	if s.keys == nil {
+		return nil, auth.ErrUnsynced
 	}
 
 	// Fetch the key from the list of managed keys

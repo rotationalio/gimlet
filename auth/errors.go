@@ -5,6 +5,7 @@ import "errors"
 var (
 	ErrMissingConfigURL  = errors.New("a configuration URL to the openid provider is required")
 	ErrMissingJWKSURL    = errors.New("no jwks uri specified or found in the openid configuration")
+	ErrUnsynced          = errors.New("jwks keys have not been retrieved from openid provider")
 	ErrNotModified       = errors.New("the requested resource has not been modified")
 	ErrUnparsableClaims  = errors.New("the claims in the token could not be parsed as gimlet auth claims")
 	ErrUnknownSigningKey = errors.New("unknown signing key")

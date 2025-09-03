@@ -37,3 +37,17 @@ func WithLoginURL(loginURL url.URL) Option {
 		return nil
 	}
 }
+
+func NoSync() Option {
+	return func(q *Quarterdeck) error {
+		q.syncInit = false
+		return nil
+	}
+}
+
+func NoRun() Option {
+	return func(q *Quarterdeck) error {
+		q.runInit = false
+		return nil
+	}
+}
