@@ -56,8 +56,53 @@ func TestSecure(t *testing.T) {
 			secure.HeaderStrictTransportSecurity: "max-age=31536000; includeSubDomains; preload",
 		})
 	})
+
+	t.Run("CSP", func(t *testing.T) {
+		execTest(t, secure.Secure(&secure.Config{
+			ReferrerPolicy:          secure.NoPolicy,
+			CrossOriginOpenerPolicy: secure.NoPolicy,
+			ContentSecurityPolicy: secure.CSPDirectives{
+				DefaultSrc: []string{"https:"},
+				ScriptSrc:  []string{"'self'", "*.cloudflare.com"},
+				StyleSrc:   []string{"'self'", "'unsafe-inline'", "*.cloudflare.com"},
+			},
+			ContentSecurityPolicyReportOnly: secure.CSPDirectives{
+				ScriptSrc:               []string{"https:", "*.cdndirect.com"},
+				StyleSrc:                []string{"https:", "*.cdndirect.com"},
+				ReportTo:                "csp-endpoint",
+				UpgradeInsecureRequests: true,
+			},
+			ReportingEndpoints: map[string]string{"csp-endpoint": "https://example.com/csp-reports"},
+		}), map[string]string{
+			secure.HeaderContentTypeNosniff:      "",
+			secure.HeaderReferrerPolicy:          "",
+			secure.HeaderCrossOriginOpenerPolicy: "",
+			secure.HeaderStrictTransportSecurity: "",
+			secure.HeaderContentSecurityPolicy:   "default-src https:; script-src 'self' *.cloudflare.com; style-src 'self' 'unsafe-inline' *.cloudflare.com",
+			secure.HeaderCSPReportOnly:           `script-src https: *.cdndirect.com; style-src https: *.cdndirect.com; upgrade-insecure-requests; report-to csp-endpoint`,
+			secure.HeaderReportingEndpoints:      `csp-endpoint="https://example.com/csp-reports"`,
+		})
+	})
 }
 
 func handler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func TestReportingEndpoints(t *testing.T) {
+	testCases := []struct {
+		endpoints map[string]string
+		expected  string
+	}{
+		{endpoints: nil, expected: ""},
+		{endpoints: map[string]string{}, expected: ""},
+		{endpoints: map[string]string{"csp-endpoint": "https://example.com/csp-reports"}, expected: `csp-endpoint="https://example.com/csp-reports"`},
+		{endpoints: map[string]string{"csp-endpoint": "https://example.com/csp-reports", "permissions-endpoint": "https://example.com/permissions"}, expected: `csp-endpoint="https://example.com/csp-reports", permissions-endpoint="https://example.com/permissions"`},
+	}
+
+	for i, tc := range testCases {
+		// HACK: golang dictionaries do not guarantee order on iteration so this test can fail
+		// TODO: use a regular expression to validate the output or use a sorted structure
+		require.Equal(t, tc.expected, secure.ReportingEndpoints(tc.endpoints), "test case %d", i)
+	}
 }

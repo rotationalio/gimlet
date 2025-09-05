@@ -17,6 +17,7 @@ func TestConfigValidate(t *testing.T) {
 			{ReferrerPolicy: "origin", CrossOriginOpenerPolicy: "same-origin"},
 			{ReferrerPolicy: "origin-when-cross-origin", CrossOriginOpenerPolicy: "same-origin"},
 			{ReferrerPolicy: "unsafe-url", CrossOriginOpenerPolicy: "same-origin"},
+			{ContentSecurityPolicyReportOnly: secure.CSPDirectives{DefaultSrc: []string{"https:"}}, ReportingEndpoints: map[string]string{"csp-endpoint": "https://example.com/csp-reports"}, ReferrerPolicy: secure.NoPolicy, CrossOriginOpenerPolicy: secure.NoPolicy},
 		}
 
 		for i, tc := range testCases {
@@ -30,6 +31,7 @@ func TestConfigValidate(t *testing.T) {
 			{ReferrerPolicy: "invalid"},
 			{CrossOriginOpenerPolicy: "invalid"},
 			{ReferrerPolicy: "invalid", CrossOriginOpenerPolicy: "invalid"},
+			{ContentSecurityPolicyReportOnly: secure.CSPDirectives{DefaultSrc: []string{"https:"}}, ReferrerPolicy: secure.NoPolicy, CrossOriginOpenerPolicy: secure.NoPolicy},
 		}
 
 		for i, tc := range testCases {

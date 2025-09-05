@@ -13,24 +13,36 @@ func Secure(c *Config) gin.HandlerFunc {
 			ContentTypeNosniff: true,
 		}
 	}
-	c.SetDefaults()
 
+	c.SetDefaults()
 	headers := make(map[string]string, 4)
 
 	if c.ContentTypeNosniff {
 		headers[HeaderContentTypeNosniff] = NoSniff
 	}
 
-	if c.CrossOriginOpenerPolicy != None {
+	if c.CrossOriginOpenerPolicy != NoPolicy {
 		headers[HeaderCrossOriginOpenerPolicy] = c.CrossOriginOpenerPolicy
 	}
 
-	if c.ReferrerPolicy != None {
+	if c.ReferrerPolicy != NoPolicy {
 		headers[HeaderReferrerPolicy] = c.ReferrerPolicy
 	}
 
 	if directive := c.HSTS.Directive(); directive != "" {
 		headers[HeaderStrictTransportSecurity] = directive
+	}
+
+	if directive := c.ContentSecurityPolicy.Directive(); directive != "" {
+		headers[HeaderContentSecurityPolicy] = directive
+	}
+
+	if directive := c.ContentSecurityPolicyReportOnly.Directive(); directive != "" {
+		headers[HeaderCSPReportOnly] = directive
+	}
+
+	if len(c.ReportingEndpoints) > 0 {
+		headers[HeaderReportingEndpoints] = ReportingEndpoints(c.ReportingEndpoints)
 	}
 
 	return func(c *gin.Context) {
@@ -50,6 +62,9 @@ const (
 	HeaderReferrerPolicy          = "Referrer-Policy"
 	HeaderCrossOriginOpenerPolicy = "Cross-Origin-Opener-Policy"
 	HeaderStrictTransportSecurity = "Strict-Transport-Security"
+	HeaderReportingEndpoints      = "Reporting-Endpoints"
+	HeaderContentSecurityPolicy   = "Content-Security-Policy"
+	HeaderCSPReportOnly           = "Content-Security-Policy-Report-Only"
 )
 
 //===========================================================================
@@ -61,7 +76,7 @@ const NoSniff = "nosniff"
 
 // Referrer Policy Options
 const (
-	None                        = "none"
+	NoPolicy                    = "none"
 	NoReferrer                  = "no-referrer"
 	NoReferrerWhenDowngrade     = "no-referrer-when-downgrade"
 	Origin                      = "origin"
@@ -75,7 +90,7 @@ const (
 // List of all supported Referrer-Policy options
 var ReferrerPolicies = [9]string{
 	// No Referrer Policy is set.
-	None,
+	NoPolicy,
 
 	// Instructs the browser to send no referrer for links clicked on this site.
 	NoReferrer,
@@ -118,7 +133,7 @@ const (
 // List of all supported Cross-Origin-Opener-Policy options
 var CrossOriginOpenerPolicies = [5]string{
 	// No Cross-Origin-Opener-Policy is set.
-	None,
+	NoPolicy,
 
 	// Isolates the browsing context exclusively to same-origin documents. Cross-origin
 	// documents are not loaded in the same browsing context.
@@ -156,4 +171,20 @@ func OpenerPolicy(policy string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unknown cross-origin opener policy %q", policy)
+}
+
+func ReportingEndpoints(endpoints map[string]string) string {
+	sb := new(strings.Builder)
+	first := true
+
+	for name, url := range endpoints {
+		if !first {
+			sb.WriteString(", ")
+		}
+		first = false
+
+		fmt.Fprintf(sb, `%s="%s"`, name, url)
+	}
+
+	return sb.String()
 }
