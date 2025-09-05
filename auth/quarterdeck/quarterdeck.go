@@ -17,11 +17,15 @@ import (
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
 	"go.rtnl.ai/x/api"
+	"go.rtnl.ai/x/backoff"
 )
 
 const (
 	// Default timeout for synchronization requests to Quarterdeck.
 	SyncTimeout = 20 * time.Second
+
+	// Default timeout for backoff retries when synchronizing with Quarterdeck.
+	BackoffTimeout = 5 * time.Minute
 
 	// Default interval for synchronization of JWKS and OpenID configuration if not
 	// specified by the Expires header.
@@ -205,7 +209,9 @@ func (s *Quarterdeck) Run() {
 
 	// Synchronize then schedule the next synchronization
 	time.AfterFunc(wait, func() {
-		s.Sync()
+		if err := s.Sync(); err != nil {
+			log.Error().Err(err).Msg("could not synchronize keys with Quarterdeck")
+		}
 		s.Run() // Restart the synchronization process
 	})
 }
@@ -213,20 +219,41 @@ func (s *Quarterdeck) Run() {
 // Synchronizes the JWKS and OpenID configuration from Quarterdeck, respecting the
 // cache-control headers and ETag for caching purposes.
 func (s *Quarterdeck) Sync() (err error) {
+	// Maximum time limit to allow synchronization to complete
+	ctx, cancel := context.WithTimeout(context.Background(), BackoffTimeout)
+	defer cancel()
+
+	// Use exponential backoff to retry synchronization in case of errors
+	if _, err = backoff.Retry(ctx, s.sync, backoff.WithNotify(notify("could not synchronize with Quarterdeck"))); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Quarterdeck) sync() (_ bool, err error) {
 	s.Lock()
 	defer s.Unlock()
 
 	now := time.Now()
+	updated := false
+
 	ctx, cancel := context.WithTimeout(context.Background(), SyncTimeout)
 	defer cancel()
 
 	// Fetch the OpenID configuration from Quarterdeck
 	if expires, ok := s.expires[s.configURL]; !ok || now.After(expires) {
-		if s.config, err = s.Config(ctx); err != nil {
+		var config *OpenIDConfiguration
+		if config, err = s.Config(ctx); err != nil {
 			if !errors.Is(err, auth.ErrNotModified) {
 				// If the error is not a 304 Not Modified, return it
-				return fmt.Errorf("could not fetch OpenID configuration: %w", err)
+				return updated, fmt.Errorf("could not fetch OpenID configuration: %w", err)
 			}
+		}
+
+		// Only replace the local configuration if we fetched a new one
+		if config != nil {
+			s.config = config
+			updated = true
 		}
 
 		// Update the local configuration from the fetched configuration
@@ -249,35 +276,45 @@ func (s *Quarterdeck) Sync() (err error) {
 
 	// Fetch the JWKS from Quarterdeck
 	if expires, ok := s.expires[s.jwksURL]; !ok || now.After(expires) {
-		if s.keys, err = s.JWKS(ctx); err != nil {
+		var keys *jose.JSONWebKeySet
+		if keys, err = s.JWKS(ctx); err != nil {
 			if !errors.Is(err, auth.ErrNotModified) {
 				// If the error is not a 304 Not Modified, return it
-				return fmt.Errorf("could not fetch JWKS: %w", err)
+				return updated, fmt.Errorf("could not fetch JWKS: %w", err)
 			}
+		}
+
+		// Only replace the local keys if we fetched new ones
+		if keys != nil {
+			s.keys = keys
+			updated = true
 		}
 	}
 
-	// Create the JWT parser
-	opts := []jwt.ParserOption{
-		jwt.WithAudience(s.audience),
+	// Create the JWT parser if there were updates
+	if updated {
+		opts := []jwt.ParserOption{
+			jwt.WithAudience(s.audience),
+		}
+
+		// If the user specified the issuer, use it or the issuer specified by the OpenID configuration
+		if s.issuer != "" {
+			opts = append(opts, jwt.WithIssuer(s.issuer))
+		} else if s.config != nil && s.config.Issuer != "" {
+			opts = append(opts, jwt.WithIssuer(s.config.Issuer))
+		}
+
+		// If the user specified signing methods, use them or the ones specified by the OpenID configuration
+		if len(s.signingMethods) > 0 {
+			opts = append(opts, jwt.WithValidMethods(s.signingMethods))
+		} else if s.config != nil && len(s.config.IDTokenSigningAlgValues) > 0 {
+			opts = append(opts, jwt.WithValidMethods(s.config.IDTokenSigningAlgValues))
+		}
+
+		s.parser = jwt.NewParser(opts...)
 	}
 
-	// If the user specified the issuer, use it or the issuer specified by the OpenID configuration
-	if s.issuer != "" {
-		opts = append(opts, jwt.WithIssuer(s.issuer))
-	} else if s.config != nil && s.config.Issuer != "" {
-		opts = append(opts, jwt.WithIssuer(s.config.Issuer))
-	}
-
-	// If the user specified signing methods, use them or the ones specified by the OpenID configuration
-	if len(s.signingMethods) > 0 {
-		opts = append(opts, jwt.WithValidMethods(s.signingMethods))
-	} else if s.config != nil && len(s.config.IDTokenSigningAlgValues) > 0 {
-		opts = append(opts, jwt.WithValidMethods(s.config.IDTokenSigningAlgValues))
-	}
-
-	s.parser = jwt.NewParser(opts...)
-	return nil
+	return updated, nil
 }
 
 func (s *Quarterdeck) Expires(url string) (expires time.Time, ok bool) {
@@ -326,4 +363,10 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 	}
 
 	return out, nil
+}
+
+func notify(msg string) backoff.Notify {
+	return func(err error, delay time.Duration) {
+		log.Warn().Err(err).Dur("delay", delay).Msg(msg)
+	}
 }
