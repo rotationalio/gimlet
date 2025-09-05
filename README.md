@@ -381,6 +381,27 @@ If you would like to manage multiple objects, with the same handler using a map,
 
 Note that the `cache.Control` takes a handler that can be very flexible. See the `ETagger`, `Expirer`, and `CacheController` interfaces for adding your own cache handlers to the middleware. Additionally there are built-in controllers such as `Manager`, `ETag`, `WeakETag`, `Expires`, and `CacheControl` that can give you more fine grained control of the cache settings.
 
+## Secure
+
+The secure middleware provides several security enhancements to response handling and ensures that modern browser directive headers are included in the response. The middleware can be configured to determine how headers and responses are handled.
+
+Basic Usage:
+
+```go
+config := &secure.Config{
+    ContentTypeNosniff: true,
+    CrossOriginOpenerPolicy: secure.SameOrigin,
+    ReferrerPolicy: secure.StrictOriginWhenCrossOrigin,
+    HSTS: secure.HSTSConfig{
+        Seconds: 63072000,
+        IncludeSubdomains: true,
+        Preload: true,
+    }
+}
+
+router.Use(secure.Secure(config))
+```
+
 ## About
 
 Rotational's web services built in Go use common middleware for logging, authentication, authorization, csrf protection and more. This package unifies our middleware usage across all of our web services, simplifying service development. Rotational services primarily depend on Gin as the base framework, hence gimlet - lime and gin!
