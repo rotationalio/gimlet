@@ -216,6 +216,62 @@ func TestCookieDomains(t *testing.T) {
 	}
 }
 
+func TestRootDomains(t *testing.T) {
+	testCases := []struct {
+		domains  []string
+		expected []string
+	}{
+		{
+			nil, nil,
+		},
+		{
+			[]string{}, []string{},
+		},
+		{
+			[]string{""}, []string{""},
+		},
+		{
+			[]string{"", "", "", ""}, []string{""},
+		},
+		{
+			[]string{"example.com"},
+			[]string{"example.com"},
+		},
+		{
+			[]string{"example.com", "example.com", "example.com"},
+			[]string{"example.com"},
+		},
+		{
+			[]string{"example.com", "example.io", "example.ai"},
+			[]string{"example.com", "example.io", "example.ai"},
+		},
+		{
+			[]string{"example.com", "auth.example.com", "db.example.com"},
+			[]string{"example.com"},
+		},
+		{
+			[]string{"example.com", "auth.example.com", "db.example.com", "example.io", "auth.example.io"},
+			[]string{"example.com", "example.io"},
+		},
+		{
+			[]string{"example.com", "auth.example.com", "db.example.com", "example.io", "auth.example.io", "example.ai", "example.co.uk", "auth.example.co.uk"},
+			[]string{"example.com", "example.io", "example.ai", "example.co.uk"},
+		},
+		{
+			[]string{"example.com", "example.ai", "auth.example.com", "db.example.com", "example.io", "auth.example.io", "example.ai", "example.co.uk", "auth.example.co.uk"},
+			[]string{"example.com", "example.io", "example.ai", "example.co.uk"},
+		},
+	}
+
+	for i, tc := range testCases {
+		actual := gimlet.RootDomains(tc.domains)
+		require.Len(t, actual, len(tc.expected), "test case %d failed", i)
+		for _, domain := range tc.expected {
+			require.Contains(t, actual, domain, "test case %d failed", i)
+		}
+	}
+}
+
 //===========================================================================
 // Test Helpers
 //===========================================================================

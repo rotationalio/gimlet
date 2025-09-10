@@ -262,6 +262,63 @@ func TestSetDoubleCookieToken(t *testing.T) {
 			require.Truef(t, tokenRe.MatchString(cookie) || refRe.MatchString(cookie), "%q does not match regular expressions", cookie)
 		}
 	})
+
+	t.Run("MultipleDomains", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/", []string{"example.com", "example.io", "example.ai"}, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 6, "expected four cookies to be set")
+
+		tokenRe := regexp.MustCompile(`csrf_token=test; Path=/; Domain=(example.io|example.ai|example.com); Max-Age=(3658|3659|3660); Secure`)
+		refRe := regexp.MustCompile(`csrf_reference_token=test; Path=/; Domain=(example.io|example.ai|example.com); Max-Age=(3658|3659|3660); HttpOnly; Secure`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, tokenRe.MatchString(cookie) || refRe.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+
+	t.Run("Subdomains", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://auth.example.com/login", nil)
+
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/", []string{"example.com", "auth.example.com", "db.example.com"}, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 4, "expected six cookies to be set")
+
+		tokenRe := regexp.MustCompile(`csrf_token=test; Path=/; Domain=(example.com|auth.example.com|db.example.com); Max-Age=(3658|3659|3660); Secure`)
+		refRe := regexp.MustCompile(`csrf_reference_token=test; Path=/; Domain=example.com; Max-Age=(3658|3659|3660); HttpOnly; Secure`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, tokenRe.MatchString(cookie) || refRe.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
+
+	t.Run("MultipleSubdomains", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "https://auth.example.com/login", nil)
+
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/", []string{"example.com", "auth.example.com", "db.example.com", "example.io", "auth.example.io", "db.example.io"}, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+
+		cookies := w.Header().Values("Set-Cookie")
+		require.Len(t, cookies, 8, "expected six cookies to be set")
+
+		tokenRe := regexp.MustCompile(`csrf_token=test; Path=/; Domain=(example.com|auth.example.com|db.example.com|example.io|auth.example.io|db.example.io); Max-Age=(3658|3659|3660); Secure`)
+		refRe := regexp.MustCompile(`csrf_reference_token=test; Path=/; Domain=(example.com|example.io); Max-Age=(3658|3659|3660); HttpOnly; Secure`)
+
+		for _, cookie := range cookies {
+			require.Truef(t, tokenRe.MatchString(cookie) || refRe.MatchString(cookie), "%q does not match regular expressions", cookie)
+		}
+	})
 }
 
 //===========================================================================

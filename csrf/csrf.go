@@ -102,18 +102,19 @@ func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path string,
 		domains = append(domains, "")
 	}
 
-	// Set the CSRF cookies for each domain specified (or the current domain if none).
+	// Set the CSRF cookie for each domain specified.
 	for _, domain := range domains {
 		secure := !gimlet.IsLocalhost(domain)
-
-		// Set the two CSRF cookies.
-		// NOTE: if one domain is a subdomain of another, the reference cookie is
-		// unnecessarily duplicated, but other than increasing the data usage, it
-		// should not cause an issue provided that the token is the same for both
-		// reference cookies.
-		c.SetCookie(ReferenceCookie, token, maxAge, path, domain, secure, true)
 		c.SetCookie(Cookie, token, maxAge, path, domain, secure, false)
 	}
+
+	// Set the CSRF reference cookie only for the root domain(s) since cookies will
+	// respect subdomains and duplicating the httpOnly reference cookie is not needed.
+	for _, domain := range gimlet.RootDomains(domains) {
+		secure := !gimlet.IsLocalhost(domain)
+		c.SetCookie(ReferenceCookie, token, maxAge, path, domain, secure, true)
+	}
+
 	return nil
 }
 
