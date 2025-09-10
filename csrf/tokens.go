@@ -190,21 +190,9 @@ func (s *SignedCSRFTokens) SetDoubleCookieToken(c *gin.Context) error {
 		expires = time.Now().Add(s.CookieTTL)
 	}
 
-	if len(s.CookieDomain) == 0 {
-		if err := SetDoubleCookieToken(c, s, s.CookiePath, "", expires); err != nil {
-			return err
-		}
-		return nil
+	if err := SetDoubleCookieToken(c, s, s.CookiePath, s.CookieDomain, expires); err != nil {
+		return err
 	}
-
-	// Note: each generate will cause a double read lock; but that's fine since it
-	// ensures all domains have CSRF tokens set signed with the same secret.
-	for _, domain := range s.CookieDomain {
-		if err := SetDoubleCookieToken(c, s, s.CookiePath, domain, expires); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -277,19 +265,8 @@ func (n *NaiveCSRFTokens) SetDoubleCookieToken(c *gin.Context) error {
 		expires = time.Now().Add(n.CookieTTL)
 	}
 
-	if len(n.CookieDomain) == 0 {
-		if err := SetDoubleCookieToken(c, n, n.CookiePath, "", expires); err != nil {
-			return err
-		}
-		return nil
+	if err := SetDoubleCookieToken(c, n, n.CookiePath, n.CookieDomain, expires); err != nil {
+		return err
 	}
-
-	// NOTE: each domain will get a different CSRF token, but it shouldn't cause an issue.
-	for _, domain := range n.CookieDomain {
-		if err := SetDoubleCookieToken(c, n, n.CookiePath, domain, expires); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }

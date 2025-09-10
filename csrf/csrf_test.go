@@ -183,7 +183,7 @@ func TestSetDoubleCookieToken(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodGet, "http://localhost:8000/test", nil)
 		want := errors.New("test error")
 
-		got := SetDoubleCookieToken(c, &TestGenerator{Err: want}, "", "", time.Time{})
+		got := SetDoubleCookieToken(c, &TestGenerator{Err: want}, "", nil, time.Time{})
 		require.ErrorIs(t, got, want, "expected error to match")
 	})
 
@@ -192,7 +192,7 @@ func TestSetDoubleCookieToken(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "http://localhost:8000/test", nil)
 
-		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", "localhost", time.Now().Add(173*time.Minute))
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", []string{"localhost"}, time.Now().Add(173*time.Minute))
 		require.NoError(t, err)
 
 		cookies := w.Header().Values("Set-Cookie")
@@ -211,7 +211,7 @@ func TestSetDoubleCookieToken(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
 
-		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", "example.com", time.Now().Add(173*time.Minute))
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", []string{"example.com"}, time.Now().Add(173*time.Minute))
 		require.NoError(t, err)
 
 		cookies := w.Header().Values("Set-Cookie")
@@ -230,7 +230,7 @@ func TestSetDoubleCookieToken(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
 
-		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "", "example.com", time.Now().Add(173*time.Minute))
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "", []string{"example.com"}, time.Now().Add(173*time.Minute))
 		require.NoError(t, err)
 
 		cookies := w.Header().Values("Set-Cookie")
@@ -249,7 +249,7 @@ func TestSetDoubleCookieToken(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
 
-		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", "example.com", time.Time{})
+		err := SetDoubleCookieToken(c, &TestGenerator{Token: "test"}, "/test", []string{"example.com"}, time.Time{})
 		require.NoError(t, err)
 
 		cookies := w.Header().Values("Set-Cookie")
