@@ -332,10 +332,10 @@ func TestHandlerSetDoubleCookieToken(t *testing.T) {
 				require.NoError(t, err)
 
 				cookies := w.Header().Values("Set-Cookie")
-				require.Len(t, cookies, 6, "expected six cookies to be set")
+				require.Len(t, cookies, 4, "expected six cookies to be set")
 
 				tokenRe := regexp.MustCompile(`csrf_token=[a-zA-Z0-9_%-]+; Path=/; Domain=(example.com|auth.example.com|db.example.com); Max-Age=(359|360|361); Secure`)
-				refRe := regexp.MustCompile(`csrf_reference_token=[a-zA-Z0-9_%-]+; Path=/; Domain=(example.com|auth.example.com|db.example.com); Max-Age=(359|360|361); HttpOnly; Secure`)
+				refRe := regexp.MustCompile(`csrf_reference_token=[a-zA-Z0-9_%-]+; Path=/; Domain=example.com; Max-Age=(359|360|361); HttpOnly; Secure`)
 
 				for _, cookie := range cookies {
 					require.Truef(t, tokenRe.MatchString(cookie) || refRe.MatchString(cookie), "%q does not match regular expressions", cookie)
