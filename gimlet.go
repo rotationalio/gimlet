@@ -100,3 +100,32 @@ func CookieDomains(domain ...string) []string {
 
 	return domain
 }
+
+// Returns only the root domains from a list of domains, removing any subdomains.
+// TODO: this is a suffix-based implementation but should use a public suffix list.
+func RootDomains(domains []string) []string {
+	roots := make([]string, 0, len(domains))
+	for i, d := range domains {
+		// If this is a subdomain of any other domain (e.g. one of the other domains
+		// is a suffix of this domain with a dot before it), do not include it in the
+		// roots list.
+		isSubdomain := false
+		for j, od := range domains {
+			if i != j && (strings.HasSuffix(d, "."+od)) {
+				isSubdomain = true
+				break
+			}
+
+			if i != j && d == od && i < j {
+				// Deduplicate identical domains
+				isSubdomain = true
+				break
+			}
+		}
+
+		if !isSubdomain {
+			roots = append(roots, d)
+		}
+	}
+	return roots
+}

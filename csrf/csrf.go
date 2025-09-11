@@ -77,7 +77,7 @@ func DoubleCookie(verifier TokenVerifier) gin.HandlerFunc {
 // SetDoubleCookieToken uses the generator to create a CSRF token and sets two cookies:
 // one for the reference that is httpOnly and secure, and another for the front-end to
 // collect and add to the request header.
-func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path, domain string, expires time.Time) (err error) {
+func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path string, domains []string, expires time.Time) (err error) {
 	// Generate a secure token
 	var token string
 	if token, err = generator.GenerateCSRFToken(); err != nil {
@@ -96,11 +96,25 @@ func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path, domain
 
 	// Compute the max age of the cookie from the expires time
 	maxAge := int(time.Until(expires).Seconds()) + gimlet.CookieBuffer
-	secure := !gimlet.IsLocalhost(domain)
 
-	// Set the two CSRF cookies.
-	c.SetCookie(ReferenceCookie, token, maxAge, path, domain, secure, true)
-	c.SetCookie(Cookie, token, maxAge, path, domain, secure, false)
+	// If no domains are specified, do not specify a domain for the cookie
+	if len(domains) == 0 {
+		domains = append(domains, "")
+	}
+
+	// Set the CSRF cookie for each domain specified.
+	for _, domain := range domains {
+		secure := !gimlet.IsLocalhost(domain)
+		c.SetCookie(Cookie, token, maxAge, path, domain, secure, false)
+	}
+
+	// Set the CSRF reference cookie only for the root domain(s) since cookies will
+	// respect subdomains and duplicating the httpOnly reference cookie is not needed.
+	for _, domain := range gimlet.RootDomains(domains) {
+		secure := !gimlet.IsLocalhost(domain)
+		c.SetCookie(ReferenceCookie, token, maxAge, path, domain, secure, true)
+	}
+
 	return nil
 }
 
