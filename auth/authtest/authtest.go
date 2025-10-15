@@ -146,6 +146,8 @@ func (s *Server) JWKS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) OpenIDConfig(w http.ResponseWriter, r *http.Request) {
 	out := map[string]interface{}{
 		"issuer":                                Issuer,
+		"authorization_endpoint":                s.srv.URL + "/login",
+		"token_endpoint":                        s.srv.URL + "/v1/reauthenticate",
 		"jwks_uri":                              s.srv.URL + "/.well-known/jwks.json",
 		"scopes_supported":                      []string{"openid", "profile", "email"},
 		"response_types_supported":              []string{"token", "id_token"},

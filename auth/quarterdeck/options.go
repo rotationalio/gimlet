@@ -38,6 +38,17 @@ func WithLoginURL(loginURL url.URL) Option {
 	}
 }
 
+// Sets the URL used for reauthentication with Quarterdeck using a refresh token.
+func WithReauthURL(reauthURL url.URL) Option {
+	return func(q *Quarterdeck) error {
+		q.reauthURL = &ReauthURL{
+			url:       &reauthURL,
+			immutable: true, // Set to true to prevent updates
+		}
+		return nil
+	}
+}
+
 func NoSync() Option {
 	return func(q *Quarterdeck) error {
 		q.syncInit = false

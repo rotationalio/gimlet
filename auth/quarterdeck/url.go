@@ -62,3 +62,37 @@ func (l *LoginURL) Location(c *gin.Context) string {
 	loc.RawQuery = query.Encode()
 	return loc.String()
 }
+
+// ReauthURL provides a thread-safe way to manage the reauthorization
+// URL for Quarterdeck and tracks if the URL is set by the user (immutable) or
+// if it is set by the OpenID configuration, which means it can be updated
+// during synchronization.
+type ReauthURL struct {
+	sync.RWMutex
+	url       *url.URL
+	immutable bool
+}
+
+func (l *ReauthURL) Update(uri string) {
+	// Do not update the URL if it is empty
+	if uri == "" {
+		return
+	}
+
+	l.Lock()
+	defer l.Unlock()
+
+	if l.immutable {
+		return // Do not update if the URL is immutable
+	}
+
+	var err error
+	if l.url, err = url.Parse(uri); err != nil {
+		log.Warn().Err(err).Msg("could not parse reauthorization URL")
+		l.url = nil
+	}
+}
+
+func (l *ReauthURL) String() string {
+	return l.url.String()
+}

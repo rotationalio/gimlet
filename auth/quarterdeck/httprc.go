@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"time"
@@ -26,8 +27,8 @@ const (
 	contentType  = "application/json; charset=utf-8"
 )
 
-func (s *Quarterdeck) NewRequest(ctx context.Context, url string) (req *http.Request, err error) {
-	if req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil); err != nil {
+func (s *Quarterdeck) NewRequest(ctx context.Context, method, url string, body io.Reader) (req *http.Request, err error) {
+	if req, err = http.NewRequestWithContext(ctx, method, url, body); err != nil {
 		return nil, fmt.Errorf("could not create request: %w", err)
 	}
 

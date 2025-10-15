@@ -1,7 +1,9 @@
 package quarterdeck
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -30,10 +32,15 @@ const (
 	// Default interval for synchronization of JWKS and OpenID configuration if not
 	// specified by the Expires header.
 	SyncInterval = 1 * time.Hour
+
+	// Default timeout for reauthentication requests to Quarterdeck.
+	ReauthTimeout = 5 * time.Second
 )
 
 var (
-	ErrNoLoginURL = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
+	ErrNoLoginURL    = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
+	ErrNoReauthURL   = errors.New("no reauthentication URL specified or reauthentication endpoint set in OIDC discovery data")
+	ErrNoAccessToken = errors.New("no access token provided in response")
 )
 
 // Quarterdeck implements the Authenticator and Reauthenticator interface for the
@@ -57,6 +64,7 @@ type Quarterdeck struct {
 	issuer         string
 	signingMethods []string
 	loginURL       *LoginURL
+	reauthURL      *ReauthURL
 	syncInit       bool
 	runInit        bool
 
@@ -75,6 +83,7 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 		audience:  audience,
 		issuer:    "",
 		loginURL:  &LoginURL{},
+		reauthURL: &ReauthURL{},
 		etag:      make(map[string]string),
 		expires:   make(map[string]time.Time),
 		syncInit:  true,
@@ -133,6 +142,34 @@ func (s *Quarterdeck) Verify(accessToken string) (claims *auth.Claims, err error
 	// I haven't figured out a test that will allow us to reach this case; if you pass
 	// in a token with a different type of claims, it will return an empty auth.Claims.
 	return nil, auth.ErrUnparsableClaims
+}
+
+// Implements the Reauthenticator interface to reauthenticate the user if the
+// access token is expired and a refresh token is available.
+func (s *Quarterdeck) Refresh(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken string, err error) {
+	s.RLock()
+	defer s.RUnlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), ReauthTimeout)
+	defer cancel()
+
+	if newAccessToken, err = s.Reauthenticate(ctx, refreshToken); err != nil {
+		return nil, "", err
+	}
+
+	var token *jwt.Token
+	if token, err = s.parser.ParseWithClaims(accessToken, &auth.Claims{}, s.GetKey); err != nil {
+		return nil, "", err
+	}
+
+	var ok bool
+	if claims, ok = token.Claims.(*auth.Claims); ok && token.Valid {
+		return claims, newAccessToken, nil
+	}
+
+	// I haven't figured out a test that will allow us to reach this case; if you pass
+	// in a token with a different type of claims, it will return an empty auth.Claims.
+	return nil, "", auth.ErrUnparsableClaims
 }
 
 func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
@@ -271,6 +308,9 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 
 			// If the user did not specify a login URL, use the one from the configuration
 			s.loginURL.Update(s.config.AuthorizationEP)
+
+			// If the user did not specify a reauth URL, use the one from the configuration
+			s.reauthURL.Update(s.config.TokenEP)
 		}
 	}
 
@@ -336,7 +376,7 @@ func (s *Quarterdeck) Config(ctx context.Context) (out *OpenIDConfiguration, err
 	}
 
 	var req *http.Request
-	if req, err = s.NewRequest(ctx, s.configURL); err != nil {
+	if req, err = s.NewRequest(ctx, http.MethodGet, s.configURL, nil); err != nil {
 		return nil, err
 	}
 
@@ -354,7 +394,7 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 	}
 
 	var req *http.Request
-	if req, err = s.NewRequest(ctx, s.jwksURL); err != nil {
+	if req, err = s.NewRequest(ctx, http.MethodGet, s.jwksURL, nil); err != nil {
 		return nil, err
 	}
 
@@ -363,6 +403,40 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 	}
 
 	return out, nil
+}
+
+// Reauthenticates and returns new access token by performing a POST request to
+// Quarterdeck.
+func (s *Quarterdeck) Reauthenticate(ctx context.Context, refreshToken string) (newAccessToken string, err error) {
+	var (
+		reauthURL string
+		reqBody   []byte
+		req       *http.Request
+		ok        bool
+	)
+
+	if reauthURL = s.reauthURL.String(); reauthURL == "" {
+		return "", ErrNoReauthURL
+	}
+
+	if reqBody, err = json.Marshal(&map[string]string{"refresh_token": refreshToken}); err != nil {
+		return "", err
+	}
+
+	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, bytes.NewBuffer(reqBody)); err != nil {
+		return "", err
+	}
+
+	respBody := make(map[string]string, 3)
+	if _, err = s.Do(req, &respBody); err != nil {
+		return "", err
+	}
+
+	if newAccessToken, ok = respBody["access_token"]; !ok {
+		return "", ErrNoAccessToken
+	}
+
+	return newAccessToken, nil
 }
 
 func notify(msg string) backoff.Notify {

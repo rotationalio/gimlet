@@ -33,7 +33,7 @@ type Authenticator interface {
 // Optional interface that can be implemented by authenticators to reauthenticate the
 // user if the access token is expired and a refresh token is available.
 type Reauthenticator interface {
-	Refresh(accessToken, refreshToken string) (*Claims, error)
+	Refresh(accessToken, refreshToken string) (claims *Claims, newAccessToken string, err error)
 }
 
 // Optional interface that can be implemented by authenticators to provide custom
@@ -43,7 +43,7 @@ type Unauthenticator interface {
 	NotAuthorized(c *gin.Context) error
 }
 
-type reauthenticatorFunc func(string, string) (*Claims, error)
+type reauthenticatorFunc func(string, string) (*Claims, string, error)
 type failureHandlerFunc func(*gin.Context) error
 
 func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
@@ -80,7 +80,7 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 			if reauthenticate != nil {
 				var refreshToken string
 				if refreshToken, err = GetRefreshToken(c); err == nil {
-					if claims, err = reauthenticate(accessToken, refreshToken); err == nil {
+					if claims, accessToken, err = reauthenticate(accessToken, refreshToken); err == nil {
 						// Re-authentication successful!
 						gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
 						return claims, nil

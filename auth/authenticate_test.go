@@ -212,8 +212,8 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
 				return nil, errors.New("not authorized")
 			}
-			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
-				return nil, errors.New("not allowed")
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, string, error) {
+				return nil, "", errors.New("not allowed")
 			}
 
 			w := httptest.NewRecorder()
@@ -232,8 +232,8 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
 				return nil, errors.New("not authorized")
 			}
-			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
-				return nil, errors.New("not allowed")
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, string, error) {
+				return nil, "", errors.New("not allowed")
 			}
 
 			w := httptest.NewRecorder()
@@ -255,11 +255,11 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 			mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
 				return nil, errors.New("not authorized")
 			}
-			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+			mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, string, error) {
 				if accessToken != "expired-access-token" || refreshToken != "" {
 					panic("unexpected access or refresh token")
 				}
-				return nil, errors.New("not allowed")
+				return nil, "", errors.New("not allowed")
 			}
 
 			w := httptest.NewRecorder()
@@ -280,11 +280,11 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 				mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
 					return nil, errors.New("not authorized")
 				}
-				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, string, error) {
 					if accessToken != "expired-access-token" || refreshToken != "valid-refresh-token" {
 						panic("unexpected access or refresh token")
 					}
-					return &auth.Claims{Name: "testuser"}, nil
+					return &auth.Claims{Name: "testuser"}, "new-access-token", nil
 				}
 
 				w := httptest.NewRecorder()
@@ -305,7 +305,7 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 
 				accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
 				require.True(t, exists, "should set access token in context")
-				require.Equal(t, "expired-access-token", accessToken, "access token should match the one provided")
+				require.Equal(t, "new-access-token", accessToken, "access token should be refreshed")
 			})
 
 			t.Run("Error", func(t *testing.T) {
@@ -313,11 +313,11 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 				mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
 					return nil, errors.New("not authorized")
 				}
-				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, error) {
+				mock.OnRefresh = func(accessToken, refreshToken string) (*auth.Claims, string, error) {
 					if accessToken != "expired-access-token" || refreshToken != "spoof-foo" {
 						panic("unexpected access or refresh token")
 					}
-					return nil, errors.New("not allowed")
+					return nil, "", errors.New("not allowed")
 				}
 
 				w := httptest.NewRecorder()
@@ -612,7 +612,7 @@ func (m *MockVerifier) Verify(accessToken string) (claims *auth.Claims, err erro
 
 type MockReauthenticator struct {
 	MockVerifier
-	OnRefresh func(accessToken, refreshToken string) (claims *auth.Claims, err error)
+	OnRefresh func(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken string, err error)
 }
 
 func (m *MockReauthenticator) Reset() {
@@ -620,7 +620,7 @@ func (m *MockReauthenticator) Reset() {
 	m.OnRefresh = nil
 }
 
-func (m *MockReauthenticator) Refresh(accessToken, refreshToken string) (claims *auth.Claims, err error) {
+func (m *MockReauthenticator) Refresh(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken string, err error) {
 	m.incr("Refresh")
 	if m.OnRefresh != nil {
 		return m.OnRefresh(accessToken, refreshToken)
