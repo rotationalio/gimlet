@@ -17,10 +17,12 @@ const (
 	KeyAccessToken
 	KeyCacheControl
 	KeyCacheHandler
+	KeyRefreshToken
 )
 
-var contextKeyNames = [6]string{
-	"unknown", "requestID", "userClaims", "accessToken", "cacheControl", "cacheHandler",
+var contextKeyNames = [7]string{
+	"unknown", "requestID", "userClaims", "accessToken", "cacheControl",
+	"cacheHandler", "refreshToken",
 }
 
 func (c ContextKey) String() string {

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"testing"
 	"time"
 
@@ -29,9 +30,10 @@ import (
 )
 
 const (
-	Audience    = "http://127.0.0.1"
-	Issuer      = "http://127.0.0.1"
-	ContentType = "application/json; charset=utf-8"
+	Audience        = "http://127.0.0.1"
+	RefreshAudience = "http://127.0.0.1/v1/reauthenticate"
+	Issuer          = "http://127.0.0.1"
+	ContentType     = "application/json; charset=utf-8"
 )
 
 var (
@@ -60,6 +62,7 @@ func New(t *testing.T) *Server {
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/.well-known/jwks.json", s.CacheControl(s.JWKS))
 	s.mux.HandleFunc("/.well-known/openid-configuration", s.CacheControl(s.OpenIDConfig))
+	s.mux.HandleFunc("/v1/reauthenticate", s.CacheControl(s.Reauthenticate))
 
 	s.srv = httptest.NewServer(s.mux)
 	t.Cleanup(s.srv.Close)
@@ -160,6 +163,85 @@ func (s *Server) OpenIDConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+// Returns a new access and refresh token with the same claims as the access
+// token in the header if the refresh and header access tokens are valid.
+func (s *Server) Reauthenticate(w http.ResponseWriter, r *http.Request) {
+	// Get the request JSON body
+	in := make(map[string]string)
+	json.NewDecoder(r.Body).Decode(&in)
+	if errMsg, ok := in["error"]; ok {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+
+	// Get the refresh token from the request JSON
+	refreshToken, ok := in["refresh_token"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no refresh token found in request body"})
+		return
+	}
+
+	// Verify the refresh token
+	_, err := s.Verify(refreshToken)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Get the access token from the auth header
+	var accessToken string
+	if header := r.Header.Get("Authorization"); header != "" {
+		match := regexp.MustCompile(`^\s*[Bb]earer\s+([a-zA-Z0-9_\-\.]+)\s*$`).FindStringSubmatch(header)
+		if len(match) == 2 {
+			accessToken = match[1]
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "could not find access token in auth header"})
+			return
+		}
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "could not get auth header"})
+		return
+	}
+
+	// Get the access token accessClaims
+	accessClaims, err := s.Verify(accessToken)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Create a new access token from the original claims
+	newAccessToken, err := s.CreateAccessToken(accessClaims)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Create a new refresh token from the original claims
+	newRefreshToken, err := s.CreateRefreshToken(accessClaims)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Return the new tokens
+	out := map[string]string{
+		"access_token":  newAccessToken,
+		"refresh_token": newRefreshToken,
+	}
+	w.Header().Set("Content-Type", ContentType)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(out)
+}
+
 // Computes the Etag for the JWKS public keys.
 func (s *Server) ETag() string {
 	if s.etag == "" {
@@ -181,7 +263,7 @@ func (s *Server) CreateToken(claims *auth.Claims) (string, error) {
 }
 
 // CreateAccessToken creates a new access token with the specified claims ensuring that
-// the subject and timestmamps are set correctly. This is useful for quickly generating
+// the subject and timestamps are set correctly. This is useful for quickly generating
 // access tokens for testing purposes.
 func (s *Server) CreateAccessToken(claims *auth.Claims) (string, error) {
 	now := time.Now().In(time.UTC)
@@ -195,6 +277,25 @@ func (s *Server) CreateAccessToken(claims *auth.Claims) (string, error) {
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(1 * time.Hour)),
+	}
+
+	return s.CreateToken(claims)
+}
+
+// CreateRefreshToken creates a new refresh token from the specified access
+// token claims ensuring that the claims match those of the access token. This
+// is useful for quickly generating refresh tokens for testing purposes.
+func (s *Server) CreateRefreshToken(accessClaims *auth.Claims) (string, error) {
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        ulid.MakeSecure().String(),
+			Subject:   accessClaims.RegisteredClaims.Subject,
+			Audience:  append(accessClaims.Audience, Audience),
+			Issuer:    accessClaims.Issuer,
+			IssuedAt:  accessClaims.IssuedAt,
+			NotBefore: accessClaims.NotBefore,
+			ExpiresAt: accessClaims.ExpiresAt,
+		},
 	}
 
 	return s.CreateToken(claims)

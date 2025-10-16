@@ -38,9 +38,10 @@ const (
 )
 
 var (
-	ErrNoLoginURL    = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
-	ErrNoReauthURL   = errors.New("no reauthentication URL specified or reauthentication endpoint set in OIDC discovery data")
-	ErrNoAccessToken = errors.New("no access token provided in response")
+	ErrNoLoginURL     = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
+	ErrNoReauthURL    = errors.New("no reauthentication URL specified or reauthentication endpoint set in OIDC discovery data")
+	ErrNoAccessToken  = errors.New("no access token provided in response")
+	ErrNoRefreshToken = errors.New("no refresh token provided in response")
 )
 
 // Quarterdeck implements the Authenticator and Reauthenticator interface for the
@@ -146,30 +147,30 @@ func (s *Quarterdeck) Verify(accessToken string) (claims *auth.Claims, err error
 
 // Implements the Reauthenticator interface to reauthenticate the user if the
 // access token is expired and a refresh token is available.
-func (s *Quarterdeck) Refresh(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken string, err error) {
+func (s *Quarterdeck) Refresh(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken, newRefreshToken string, err error) {
 	s.RLock()
 	defer s.RUnlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), ReauthTimeout)
 	defer cancel()
 
-	if newAccessToken, err = s.Reauthenticate(ctx, refreshToken); err != nil {
-		return nil, "", err
+	if newAccessToken, newRefreshToken, err = s.Reauthenticate(ctx, accessToken, refreshToken); err != nil {
+		return nil, "", "", err
 	}
 
 	var token *jwt.Token
 	if token, err = s.parser.ParseWithClaims(newAccessToken, &auth.Claims{}, s.GetKey); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	var ok bool
 	if claims, ok = token.Claims.(*auth.Claims); ok && token.Valid {
-		return claims, newAccessToken, nil
+		return claims, newAccessToken, newRefreshToken, nil
 	}
 
 	// I haven't figured out a test that will allow us to reach this case; if you pass
 	// in a token with a different type of claims, it will return an empty auth.Claims.
-	return nil, "", auth.ErrUnparsableClaims
+	return nil, "", "", auth.ErrUnparsableClaims
 }
 
 func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
@@ -407,7 +408,7 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 
 // Reauthenticates and returns new access token by performing a POST request to
 // Quarterdeck.
-func (s *Quarterdeck) Reauthenticate(ctx context.Context, refreshToken string) (newAccessToken string, err error) {
+func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshToken string) (newAccessToken, newRefreshToken string, err error) {
 	var (
 		reauthURL string
 		reqBody   []byte
@@ -416,27 +417,32 @@ func (s *Quarterdeck) Reauthenticate(ctx context.Context, refreshToken string) (
 	)
 
 	if reauthURL = s.reauthURL.String(); reauthURL == "" {
-		return "", ErrNoReauthURL
+		return "", "", ErrNoReauthURL
 	}
 
 	if reqBody, err = json.Marshal(&map[string]string{"refresh_token": refreshToken}); err != nil {
-		return "", err
+		return "", "", errors.Join(err, errors.New("could not marshal quarterdeck refresh request json"))
 	}
 
 	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, bytes.NewBuffer(reqBody)); err != nil {
-		return "", err
+		return "", "", errors.Join(err, errors.New("could not create new quarterdeck request"))
 	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 
 	respBody := make(map[string]string, 3)
 	if _, err = s.Do(req, &respBody); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if newAccessToken, ok = respBody["access_token"]; !ok {
-		return "", ErrNoAccessToken
+		return "", "", ErrNoAccessToken
 	}
 
-	return newAccessToken, nil
+	if newRefreshToken, ok = respBody["refresh_token"]; !ok {
+		return "", "", ErrNoRefreshToken
+	}
+
+	return newAccessToken, newRefreshToken, nil
 }
 
 func notify(msg string) backoff.Notify {
