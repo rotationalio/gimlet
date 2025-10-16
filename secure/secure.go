@@ -187,13 +187,6 @@ func ReportingEndpoints(endpoints map[string]string) string {
 			continue
 		}
 
-		if cmp := directives[len(directives)-1]; directive < cmp {
-			// Fast path; we can append to the end.
-			directives = append(directives, directive)
-			urls = append(urls, url)
-			continue
-		}
-
 		// Use binary search to find the insertion point
 		i, _ := slices.BinarySearch(directives, directive)
 		directives = append(directives, "")
