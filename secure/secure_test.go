@@ -101,8 +101,7 @@ func TestReportingEndpoints(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		// HACK: golang dictionaries do not guarantee order on iteration so this test can fail
-		// TODO: use a regular expression to validate the output or use a sorted structure
+		// NOTE: ReportingEndpoints sorts the directives by name.
 		require.Equal(t, tc.expected, secure.ReportingEndpoints(tc.endpoints), "test case %d", i)
 	}
 }
