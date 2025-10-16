@@ -1,9 +1,7 @@
 package quarterdeck
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -64,8 +62,8 @@ type Quarterdeck struct {
 	audience       string
 	issuer         string
 	signingMethods []string
-	loginURL       *LoginURL
-	reauthURL      *ReauthURL
+	loginURL       *ConfigURL
+	reauthURL      *ConfigURL
 	syncInit       bool
 	runInit        bool
 
@@ -83,8 +81,8 @@ func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error
 		configURL: configURL,
 		audience:  audience,
 		issuer:    "",
-		loginURL:  &LoginURL{},
-		reauthURL: &ReauthURL{},
+		loginURL:  &ConfigURL{},
+		reauthURL: &ConfigURL{},
 		etag:      make(map[string]string),
 		expires:   make(map[string]time.Time),
 		syncInit:  true,
@@ -411,38 +409,31 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshToken string) (newAccessToken, newRefreshToken string, err error) {
 	var (
 		reauthURL string
-		reqBody   []byte
 		req       *http.Request
-		ok        bool
+		out       *TokenRequest
+		in        *TokenReply
 	)
 
 	if reauthURL = s.reauthURL.String(); reauthURL == "" {
 		return "", "", ErrNoReauthURL
 	}
 
-	if reqBody, err = json.Marshal(&map[string]string{"refresh_token": refreshToken}); err != nil {
-		return "", "", errors.Join(err, errors.New("could not marshal quarterdeck refresh request json"))
-	}
-
-	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, bytes.NewBuffer(reqBody)); err != nil {
+	out = &TokenRequest{RefreshToken: refreshToken}
+	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, out); err != nil {
 		return "", "", errors.Join(err, errors.New("could not create new quarterdeck request"))
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 
-	respBody := make(map[string]string, 3)
-	if _, err = s.Do(req, &respBody); err != nil {
+	in = &TokenReply{}
+	if _, err = s.Do(req, in); err != nil {
 		return "", "", err
 	}
 
-	if newAccessToken, ok = respBody["access_token"]; !ok {
-		return "", "", ErrNoAccessToken
+	if err = in.Validate(); err != nil {
+		return "", "", err
 	}
 
-	if newRefreshToken, ok = respBody["refresh_token"]; !ok {
-		return "", "", ErrNoRefreshToken
-	}
-
-	return newAccessToken, newRefreshToken, nil
+	return in.AccessToken, in.RefreshToken, nil
 }
 
 func notify(msg string) backoff.Notify {

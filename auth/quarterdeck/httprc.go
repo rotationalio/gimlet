@@ -1,6 +1,7 @@
 package quarterdeck
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,7 +28,15 @@ const (
 	contentType  = "application/json; charset=utf-8"
 )
 
-func (s *Quarterdeck) NewRequest(ctx context.Context, method, url string, body io.Reader) (req *http.Request, err error) {
+func (s *Quarterdeck) NewRequest(ctx context.Context, method, url string, data any) (req *http.Request, err error) {
+	var body = io.ReadWriter(nil)
+	if data != nil {
+		body = &bytes.Buffer{}
+		if err = json.NewEncoder(body).Encode(data); err != nil {
+			return nil, fmt.Errorf("could not serialize request data as json: %w", err)
+		}
+	}
+
 	if req, err = http.NewRequestWithContext(ctx, method, url, body); err != nil {
 		return nil, fmt.Errorf("could not create request: %w", err)
 	}

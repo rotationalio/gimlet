@@ -30,7 +30,7 @@ func WithSigningMethods(methods []string) Option {
 
 func WithLoginURL(loginURL url.URL) Option {
 	return func(q *Quarterdeck) error {
-		q.loginURL = &LoginURL{
+		q.loginURL = &ConfigURL{
 			url:       &loginURL,
 			immutable: true, // Set to true to prevent updates
 		}
@@ -41,7 +41,7 @@ func WithLoginURL(loginURL url.URL) Option {
 // Sets the URL used for reauthentication with Quarterdeck using a refresh token.
 func WithReauthURL(reauthURL url.URL) Option {
 	return func(q *Quarterdeck) error {
-		q.reauthURL = &ReauthURL{
+		q.reauthURL = &ConfigURL{
 			url:       &reauthURL,
 			immutable: true, // Set to true to prevent updates
 		}
