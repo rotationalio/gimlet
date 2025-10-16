@@ -33,7 +33,7 @@ type Authenticator interface {
 // Optional interface that can be implemented by authenticators to reauthenticate the
 // user if the access token is expired and a refresh token is available.
 type Reauthenticator interface {
-	Refresh(accessToken, refreshToken string) (claims *Claims, newAccessToken, newRefreshToken string, err error)
+	Refresh(Tokens) (*RefreshedTokens, error)
 }
 
 // Optional interface that can be implemented by authenticators to provide custom
@@ -43,7 +43,7 @@ type Unauthenticator interface {
 	NotAuthorized(c *gin.Context) error
 }
 
-type reauthenticatorFunc func(string, string) (*Claims, string, string, error)
+type reauthenticatorFunc func(Tokens) (*RefreshedTokens, error)
 type failureHandlerFunc func(*gin.Context) error
 
 func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
@@ -78,13 +78,25 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 
 			// Attempt to reauthenticate if a reauthentication handler is available.
 			if reauthenticate != nil {
-				var refreshToken string
-				if refreshToken, err = GetRefreshToken(c); err == nil {
-					if claims, accessToken, refreshToken, err = reauthenticate(accessToken, refreshToken); err == nil {
+				tokens := Tokens{
+					Context:     c,
+					AccessToken: accessToken,
+				}
+
+				if tokens.RefreshToken, err = GetRefreshToken(c); err == nil {
+					var refreshed *RefreshedTokens
+					if refreshed, err = reauthenticate(tokens); err == nil {
 						// Re-authentication successful!
-						gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
-						gimlet.Set(c, gimlet.KeyRefreshToken, refreshToken)
-						return claims, nil
+						gimlet.Set(c, gimlet.KeyAccessToken, refreshed.AccessToken)
+						gimlet.Set(c, gimlet.KeyRefreshToken, refreshed.RefreshToken)
+
+						// If there are any cookies to be set on the response, set them now.
+						for _, cookie := range refreshed.Cookies {
+							c.SetCookie(cookie.Name, cookie.Value, cookie.MaxAge, cookie.Path, cookie.Domain, cookie.Secure, cookie.HttpOnly)
+						}
+
+						// Return the refreshed claims.
+						return refreshed.Claims, nil
 					}
 					log.Debug().Err(err).Msg("could not reauthenticate")
 				}

@@ -145,30 +145,28 @@ func (s *Quarterdeck) Verify(accessToken string) (claims *auth.Claims, err error
 
 // Implements the Reauthenticator interface to reauthenticate the user if the
 // access token is expired and a refresh token is available.
-func (s *Quarterdeck) Refresh(accessToken, refreshToken string) (claims *auth.Claims, newAccessToken, newRefreshToken string, err error) {
+func (s *Quarterdeck) Refresh(tokens auth.Tokens) (refreshed *auth.RefreshedTokens, err error) {
 	s.RLock()
 	defer s.RUnlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), ReauthTimeout)
-	defer cancel()
-
-	if newAccessToken, newRefreshToken, err = s.Reauthenticate(ctx, accessToken, refreshToken); err != nil {
-		return nil, "", "", err
+	ctx := tokens.Context.Request.Context()
+	if refreshed, err = s.Reauthenticate(ctx, tokens.AccessToken, tokens.RefreshToken); err != nil {
+		return nil, err
 	}
 
 	var token *jwt.Token
-	if token, err = s.parser.ParseWithClaims(newAccessToken, &auth.Claims{}, s.GetKey); err != nil {
-		return nil, "", "", err
+	if token, err = s.parser.ParseWithClaims(refreshed.AccessToken, &auth.Claims{}, s.GetKey); err != nil {
+		return nil, err
 	}
 
 	var ok bool
-	if claims, ok = token.Claims.(*auth.Claims); ok && token.Valid {
-		return claims, newAccessToken, newRefreshToken, nil
+	if refreshed.Claims, ok = token.Claims.(*auth.Claims); ok && token.Valid {
+		return refreshed, nil
 	}
 
 	// I haven't figured out a test that will allow us to reach this case; if you pass
 	// in a token with a different type of claims, it will return an empty auth.Claims.
-	return nil, "", "", auth.ErrUnparsableClaims
+	return nil, auth.ErrUnparsableClaims
 }
 
 func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
@@ -406,34 +404,39 @@ func (s *Quarterdeck) JWKS(ctx context.Context) (out *jose.JSONWebKeySet, err er
 
 // Reauthenticates and returns new access token by performing a POST request to
 // Quarterdeck.
-func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshToken string) (newAccessToken, newRefreshToken string, err error) {
+func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshToken string) (_ *auth.RefreshedTokens, err error) {
 	var (
 		reauthURL string
 		req       *http.Request
+		rep       *http.Response
 		out       *TokenRequest
 		in        *TokenReply
 	)
 
 	if reauthURL = s.reauthURL.String(); reauthURL == "" {
-		return "", "", ErrNoReauthURL
+		return nil, ErrNoReauthURL
 	}
 
 	out = &TokenRequest{RefreshToken: refreshToken}
 	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, out); err != nil {
-		return "", "", errors.Join(err, errors.New("could not create new quarterdeck request"))
+		return nil, errors.Join(err, errors.New("could not create new quarterdeck request"))
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 
 	in = &TokenReply{}
-	if _, err = s.Do(req, in); err != nil {
-		return "", "", err
+	if rep, err = s.Do(req, in); err != nil {
+		return nil, err
 	}
 
 	if err = in.Validate(); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	return in.AccessToken, in.RefreshToken, nil
+	return &auth.RefreshedTokens{
+		AccessToken:  in.AccessToken,
+		RefreshToken: in.RefreshToken,
+		Cookies:      rep.Cookies(),
+	}, nil
 }
 
 func notify(msg string) backoff.Notify {
