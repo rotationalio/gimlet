@@ -2,6 +2,7 @@ package secure
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -174,16 +175,46 @@ func OpenerPolicy(policy string) (string, error) {
 }
 
 func ReportingEndpoints(endpoints map[string]string) string {
+	// Reporting endpoints are always sorted alphabetically by name
+	directives := make([]string, 0, len(endpoints))
+	urls := make([]string, 0, len(endpoints))
+
+	// Because we're taking input from a map, directives are already duplicate-free.
+	for directive, url := range endpoints {
+		if len(directives) == 0 {
+			directives = append(directives, directive)
+			urls = append(urls, url)
+			continue
+		}
+
+		if cmp := directives[len(directives)-1]; directive < cmp {
+			// Fast path; we can append to the end.
+			directives = append(directives, directive)
+			urls = append(urls, url)
+			continue
+		}
+
+		// Use binary search to find the insertion point
+		i, _ := slices.BinarySearch(directives, directive)
+		directives = append(directives, "")
+		copy(directives[i+1:], directives[i:])
+		directives[i] = directive
+
+		urls = append(urls, "")
+		copy(urls[i+1:], urls[i:])
+		urls[i] = url
+	}
+
 	sb := new(strings.Builder)
 	first := true
 
-	for name, url := range endpoints {
+	for i, directive := range directives {
 		if !first {
 			sb.WriteString(", ")
 		}
 		first = false
 
-		fmt.Fprintf(sb, `%s="%s"`, name, url)
+		fmt.Fprintf(sb, `%s="%s"`, directive, urls[i])
 	}
 
 	return sb.String()

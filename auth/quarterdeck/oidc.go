@@ -1,5 +1,7 @@
 package quarterdeck
 
+import "time"
+
 type OpenIDConfiguration struct {
 	Issuer                        string   `json:"issuer"`
 	AuthorizationEP               string   `json:"authorization_endpoint"`
@@ -19,4 +21,29 @@ type OpenIDConfiguration struct {
 	TokenEndpointAuthMethods      []string `json:"token_endpoint_auth_methods_supported"`
 	ClaimsSupported               []string `json:"claims_supported"`
 	RequestURIParameterSupported  bool     `json:"request_uri_parameter_supported"`
+}
+
+// This struct matches the ReauthenticateRequest defined by Quarterdeck.
+type TokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+	Next         string `json:"next,omitempty"` // Optional redirect URL after re-authentication (not used by Gimlet)
+}
+
+// This struct matches the LoginReply response from Quarterdeck.
+type TokenReply struct {
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	LastLogin    time.Time `json:"last_login,omitempty"`
+}
+
+func (r *TokenReply) Validate() error {
+	if r.AccessToken == "" {
+		return ErrNoAccessToken
+	}
+
+	if r.RefreshToken == "" {
+		return ErrNoRefreshToken
+	}
+
+	return nil
 }

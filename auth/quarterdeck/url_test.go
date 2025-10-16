@@ -82,7 +82,7 @@ func TestLoginURL(t *testing.T) {
 		}
 
 		for i, tc := range testCases {
-			loginURL := &quarterdeck.LoginURL{}
+			loginURL := &quarterdeck.ConfigURL{}
 			loginURL.Update(tc.login)
 
 			w := httptest.NewRecorder()

@@ -2,8 +2,10 @@ package auth
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"go.rtnl.ai/ulid"
 )
@@ -56,6 +58,23 @@ func (c Claims) HasAllPermissions(required ...string) bool {
 		}
 	}
 	return true
+}
+
+//===========================================================================
+// Tokens are used when reauthenticating users.
+//===========================================================================
+
+type Tokens struct {
+	Context      *gin.Context // The request context that initiated the reauthentication.
+	AccessToken  string       // The original access token (expired or near expiry).
+	RefreshToken string       // The original refresh token (used to get new tokens, not expired).
+}
+
+type RefreshedTokens struct {
+	AccessToken  string         // The new access token.
+	RefreshToken string         // The new refresh token.
+	Claims       *Claims        // The claims extracted from the access token.
+	Cookies      []*http.Cookie // Any cookies from a reauthentication request will be set on the outgoing response.
 }
 
 // ===========================================================================
