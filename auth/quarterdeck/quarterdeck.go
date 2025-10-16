@@ -158,7 +158,7 @@ func (s *Quarterdeck) Refresh(accessToken, refreshToken string) (claims *auth.Cl
 	}
 
 	var token *jwt.Token
-	if token, err = s.parser.ParseWithClaims(accessToken, &auth.Claims{}, s.GetKey); err != nil {
+	if token, err = s.parser.ParseWithClaims(newAccessToken, &auth.Claims{}, s.GetKey); err != nil {
 		return nil, "", err
 	}
 
