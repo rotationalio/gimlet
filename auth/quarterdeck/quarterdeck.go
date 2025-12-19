@@ -24,8 +24,12 @@ const (
 	// Default timeout for synchronization requests to Quarterdeck.
 	SyncTimeout = 20 * time.Second
 
-	// Default timeout for backoff retries when synchronizing with Quarterdeck.
-	BackoffTimeout = 5 * time.Minute
+	// Backoff settings for synchronization requests to Quarterdeck.
+	BackoffTimeout             = 5 * time.Minute
+	BackoffInitialInterval     = 1 * time.Second
+	BackoffRandomizationFactor = 0.25
+	BackoffMultiplier          = 2.0
+	BackoffMaxInterval         = 30 * time.Second
 
 	// Default interval for synchronization of JWKS and OpenID configuration if not
 	// specified by the Expires header.
@@ -186,6 +190,7 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 		return nil, auth.ErrInvalidKeyID
 	}
 
+	// Critical Section: only called from Verify which has a read lock
 	// If no keys have been synced from the server return an error
 	if s.keys == nil {
 		return nil, auth.ErrUnsynced
@@ -258,9 +263,21 @@ func (s *Quarterdeck) Sync() (err error) {
 	defer cancel()
 
 	// Use exponential backoff to retry synchronization in case of errors
-	if _, err = backoff.Retry(ctx, s.sync, backoff.WithNotify(notify("could not synchronize with Quarterdeck"))); err != nil {
+	delay := backoff.NewExponentialBackOff()
+	delay.InitialInterval = BackoffInitialInterval
+	delay.RandomizationFactor = BackoffRandomizationFactor
+	delay.Multiplier = BackoffMultiplier
+	delay.MaxInterval = BackoffMaxInterval
+
+	opts := []backoff.RetryOption{
+		backoff.WithBackOff(delay),
+		backoff.WithNotify(notify("could not synchronize with Quarterdeck")),
+	}
+
+	if _, err = backoff.Retry(ctx, s.sync, opts...); err != nil {
 		return err
 	}
+
 	return nil
 }
 
