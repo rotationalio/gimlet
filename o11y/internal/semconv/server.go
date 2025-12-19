@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -70,13 +73,193 @@ func (n HTTPServer) Route(route string) attribute.KeyValue {
 	return semconv.HTTPRoute(route)
 }
 
+// Returns trace attributes for an HTTP request received by a server.
+//
+// The server must be the primary server name if it is known. E.g. the server name
+// directive in an Apache or Nginx configuration. More generically, the primary server
+// name would be the host header value that matches the default virtual host of an
+// HTTP server. It should include the host identifier and if a port is used to route
+// to the server that port identifier should be included as an appropriate port suffix.
+// If this nae is not known, server should be an empty string.
 func (n HTTPServer) RequestTraceAttrs(server string, req *http.Request, opts RequestTraceAttrsOpts) []attribute.KeyValue {
-	return nil
+	// The number of attrs for slice creation
+	count := 3 // address, method, scheme
+
+	// Determine the host and port from the server or request Host header
+	var (
+		host string
+		p    int
+	)
+
+	if server == "" {
+		host, p = SplitHostPort(req.Host)
+	} else {
+		host, p = SplitHostPort(server)
+		if p < 0 {
+			_, p = SplitHostPort(req.Host)
+		}
+	}
+
+	hostPort := requiredHTTPPort(req.TLS != nil, p)
+	if hostPort > 0 {
+		count++
+	}
+
+	method, methodOriginal := n.method(req.Method)
+	if methodOriginal != (attribute.KeyValue{}) {
+		count++
+	}
+
+	scheme := scheme(req.TLS != nil)
+
+	peer, peerPort := SplitHostPort(req.RemoteAddr)
+	if peer != "" {
+		count++
+		if peerPort > 0 {
+			count++
+		}
+	}
+
+	useragent := req.UserAgent()
+	if useragent != "" {
+		count++
+	}
+
+	// Client IP discovery order:
+	// 1. Value passed in options
+	// 2. X-Forwarded-For header
+	// 3. The peer address
+	clientIP := opts.HTTPClientIP
+	if clientIP == "" {
+		clientIP = serverClientIP(req.Header.Get("X-Forwarded-For"))
+		if clientIP == "" {
+			clientIP = peer
+		}
+	}
+	if clientIP != "" {
+		count++
+	}
+
+	if req.URL != nil && req.URL.Path != "" {
+		count++
+	}
+
+	protoName, protoVersion := netProtocol(req.Proto)
+	if protoName != "" && protoName != "http" {
+		count++
+	}
+	if protoVersion != "" {
+		count++
+	}
+
+	route := httpRoute(req.Pattern)
+	if route != "" {
+		count++
+	}
+
+	attrs := make([]attribute.KeyValue, 0, count)
+	attrs = append(attrs, semconv.ServerAddress(host), method, scheme)
+
+	if hostPort > 0 {
+		attrs = append(attrs, semconv.ServerPort(hostPort))
+	}
+	if methodOriginal != (attribute.KeyValue{}) {
+		attrs = append(attrs, methodOriginal)
+	}
+
+	if peer != "" {
+		attrs = append(attrs, semconv.NetworkPeerAddress(peer))
+		if peerPort > 0 {
+			attrs = append(attrs, semconv.NetworkPeerPort(peerPort))
+		}
+	}
+
+	if useragent != "" {
+		attrs = append(attrs, semconv.UserAgentOriginal(useragent))
+	}
+
+	if clientIP != "" {
+		attrs = append(attrs, semconv.ClientAddress(clientIP))
+	}
+
+	if req.URL != nil && req.URL.Path != "" {
+		attrs = append(attrs, semconv.URLPath(req.URL.Path))
+	}
+
+	if protoName != "" && protoName != "http" {
+		attrs = append(attrs, semconv.NetworkProtocolName(protoName))
+	}
+	if protoVersion != "" {
+		attrs = append(attrs, semconv.NetworkProtocolVersion(protoVersion))
+	}
+
+	if route != "" {
+		attrs = append(attrs, n.Route(route))
+	}
+
+	return attrs
 }
 
-func (n HTTPServer) ReponseTraceAttrs(telemetry ResponseTelemetry) []attribute.KeyValue {
-	return nil
+func (n HTTPServer) ReponseTraceAttrs(rep ResponseTelemetry) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, 3)
+
+	if rep.ReadBytes > 0 {
+		attrs = append(attrs, semconv.HTTPRequestBodySize(int(rep.ReadBytes)))
+	}
+
+	if rep.WriteBytes > 0 {
+		attrs = append(attrs, semconv.HTTPResponseBodySize(int(rep.WriteBytes)))
+	}
+
+	if rep.StatusCode > 0 {
+		attrs = append(attrs, semconv.HTTPResponseStatusCode(rep.StatusCode))
+	}
+
+	return slices.Clip(attrs)
 }
 
-func (n HTTPServer) RecordMetrics(ctx context.Context, data ServerMetricData) {
+var (
+	metricRecordOptionPool = &sync.Pool{
+		New: func() any {
+			return &[]metric.RecordOption{}
+		},
+	}
+)
+
+func (n HTTPServer) RecordMetrics(ctx context.Context, md ServerMetricData) {
+	attrs := md.Attributes()
+
+	o := metric.WithAttributeSet(attribute.NewSet(attrs...))
+	opts := metricRecordOptionPool.Get().(*[]metric.RecordOption)
+	*opts = append(*opts, o)
+
+	n.requestBodySizeHistogram.Inst().Record(ctx, md.RequestSize, *opts...)
+	n.responseBodySizeHistogram.Inst().Record(ctx, md.ResponseSize, *opts...)
+	n.requestDurationHistogram.Inst().Record(ctx, md.ElapsedTime/1000.0, o)
+
+	*opts = (*opts)[:0]
+	metricRecordOptionPool.Put(opts)
+}
+
+func (n HTTPServer) method(method string) (attribute.KeyValue, attribute.KeyValue) {
+	if method == "" {
+		return semconv.HTTPRequestMethodGet, attribute.KeyValue{}
+	}
+
+	if attr, ok := methodLookup[method]; ok {
+		return attr, attribute.KeyValue{}
+	}
+
+	orig := semconv.HTTPRequestMethodOriginal(method)
+	if attr, ok := methodLookup[strings.ToUpper(method)]; ok {
+		return attr, orig
+	}
+	return semconv.HTTPRequestMethodGet, orig
+}
+
+func scheme(isTLS bool) attribute.KeyValue {
+	if isTLS {
+		return semconv.URLScheme("https")
+	}
+	return semconv.URLScheme("http")
 }
