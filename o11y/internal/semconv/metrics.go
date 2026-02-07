@@ -24,6 +24,7 @@ type MetricAttributes struct {
 }
 
 type MetricData struct {
+	// The size of the request body, in bytes
 	RequestSize int64
 
 	// The request duration, in milliseconds
