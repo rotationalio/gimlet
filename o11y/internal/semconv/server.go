@@ -200,7 +200,7 @@ func (n HTTPServer) RequestTraceAttrs(server string, req *http.Request, opts Req
 	return attrs
 }
 
-func (n HTTPServer) ReponseTraceAttrs(rep ResponseTelemetry) []attribute.KeyValue {
+func (n HTTPServer) ResponseTraceAttrs(rep ResponseTelemetry) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, 3)
 
 	if rep.ReadBytes > 0 {

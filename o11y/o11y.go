@@ -26,7 +26,7 @@ const (
 )
 
 // Middleware returns middleware that will trace incoming requests.
-// The service pramater should describe the name of the (virtual) server handling
+// The service parameter should describe the name of the (virtual) server handling
 // the request; e.g. the name of the service.
 func Middleware(service string, opts ...Option) gin.HandlerFunc {
 	cfg := configure(opts...)
@@ -86,7 +86,7 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 		status := c.Writer.Status()
 		span.SetStatus(sc.Status(status))
 
-		span.SetAttributes(sc.ReponseTraceAttrs(semconv.ResponseTelemetry{
+		span.SetAttributes(sc.ResponseTraceAttrs(semconv.ResponseTelemetry{
 			StatusCode: status,
 			WriteBytes: int64(c.Writer.Size()),
 		})...)

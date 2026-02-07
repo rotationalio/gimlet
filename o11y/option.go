@@ -23,7 +23,7 @@ type Option interface {
 type Filter func(*http.Request) bool
 
 // GinFilter filters an http request based on the gin.Context. The filter must return
-// true if the reuqest should be traced.
+// true if the request should be traced.
 type GinFilter func(c *gin.Context) bool
 
 // SpanNameFormatter customizes the request's span name.
