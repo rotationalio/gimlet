@@ -91,7 +91,10 @@ func TestConstant(t *testing.T) {
 		require.Contains(t, headers, HeaderReset, "expected reset header to be set")
 
 		require.Equal(t, "16", headers[HeaderLimit], "expected limit header to match burst size")
-		require.Regexp(t, `-4(8|9).(0|9)(0|9)`, headers[HeaderRemaining], "expected remaining header to be -48.99 or -49.00")
+
+		val, err := strconv.ParseFloat(headers[HeaderRemaining], 64)
+		require.NoError(t, err, "expected remaining header to be a valid float")
+		require.InDelta(t, -49.00, val, 0.05, "expected remaining header to be approximately -49.00")
 
 		// Parse the reset header to ensure it's a valid timestamp.
 		resetTime, err := ParseReset(headers[HeaderReset])

@@ -36,7 +36,7 @@ func init() {
 func TestNotInstrumented(t *testing.T) {
 	router := gin.New()
 	router.GET("/", func(c *gin.Context) {
-		// Assert we don't have a spaon on the context.
+		// Assert we don't have a span on the context.
 		span := trace.SpanFromContext(c.Request.Context())
 		assert.False(t, span.SpanContext().IsValid(), "expected no valid span on the context")
 		_, _ = c.Writer.WriteString("ok")
