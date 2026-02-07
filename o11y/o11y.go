@@ -14,8 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"go.rtnl.ai/gimlet"
 	"go.rtnl.ai/gimlet/o11y/internal/semconv"
 )
 
@@ -32,8 +34,9 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 	cfg := configure(opts...)
 
 	// Setup OpenTelemetry components.
-	tracer := cfg.TracerProvider.Tracer(ScopeName)
-	meter := cfg.MeterProvider.Meter(ScopeName)
+	version := gimlet.Version()
+	tracer := cfg.TracerProvider.Tracer(ScopeName, trace.WithInstrumentationVersion(version))
+	meter := cfg.MeterProvider.Meter(ScopeName, metric.WithInstrumentationVersion(version))
 	sc := semconv.NewHTTPServer(meter)
 
 	return func(c *gin.Context) {
@@ -97,7 +100,8 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 		if len(c.Errors) > 0 {
 			span.SetStatus(codes.Error, c.Errors.String())
 			for _, err := range c.Errors {
-				span.RecordError(err)
+				// use err.Err to unwrap the *gin.Error for the original type.
+				span.RecordError(err.Err)
 			}
 		}
 
