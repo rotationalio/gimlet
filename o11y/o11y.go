@@ -1,82 +1,151 @@
+/*
+Package o11y instruments the github.com/gin-gonic/gin package.
+
+This package provides middleware that instruments the routing of a received message.
+
+Based on go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin
+*/
 package o11y
 
 import (
 	"fmt"
-	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/gimlet/o11y/internal/semconv"
 )
 
-var (
-	setup    sync.Once
-	setupErr error
+const (
+	tracerKey = "rotational-gimlet-tracer"
+
+	ScopeName = "go.rtnl.ai/gimlet/o11y"
 )
 
-func Metrics(service string) (_ gin.HandlerFunc, err error) {
-	if err = Setup(); err != nil {
-		return nil, err
-	}
+// Middleware returns middleware that will trace incoming requests.
+// The service parameter should describe the name of the (virtual) server handling
+// the request; e.g. the name of the service.
+func Middleware(service string, opts ...Option) gin.HandlerFunc {
+	cfg := configure(opts...)
+
+	// Setup OpenTelemetry components.
+	version := gimlet.Version()
+	tracer := cfg.TracerProvider.Tracer(ScopeName, trace.WithInstrumentationVersion(version))
+	meter := cfg.MeterProvider.Meter(ScopeName, metric.WithInstrumentationVersion(version))
+	sc := semconv.NewHTTPServer(meter)
 
 	return func(c *gin.Context) {
-		// Before request
-		start := time.Now()
+		// Before Request
+		started := time.Now()
 
-		// Handle the request
+		// Apply filters if any filter returns false, do not trace the request.
+		if !cfg.filter(c) {
+			c.Next()
+			return
+		}
+
+		// Begin tracing request
+		c.Set(tracerKey, tracer)
+
+		// Replace the original context when tracing is complete.
+		savedCtx := c.Request.Context()
+		defer func() {
+			c.Request = c.Request.WithContext(savedCtx)
+		}()
+
+		// Create new context for the span
+		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
+
+		requestTraceAttrOpts := semconv.RequestTraceAttrsOpts{
+			// Gin's ClientIP method can detect the client's IP from various headers set by proxies, and it's configurable
+			HTTPClientIP: c.ClientIP(),
+		}
+
+		opts := []trace.SpanStartOption{
+			trace.WithAttributes(sc.RequestTraceAttrs(service, c.Request, requestTraceAttrOpts)...),
+			trace.WithAttributes(sc.Route(c.FullPath())),
+			trace.WithSpanKind(trace.SpanKindServer),
+		}
+
+		opts = append(opts, cfg.SpanStartOptions...)
+
+		spanName := cfg.SpanNameFormatter(c)
+		if spanName == "" {
+			spanName = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
+		}
+		ctx, span := tracer.Start(ctx, spanName, opts...)
+		defer span.End()
+
+		// Pass the span through the request context and serve the request to next middleware
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 
-		// After request
-		status := strconv.Itoa(c.Writer.Status())
-		method := c.Request.Method
-		path := c.Request.URL.Path
-		duration := time.Since(start)
+		// Set span status and response telemetry
+		status := c.Writer.Status()
+		span.SetStatus(sc.Status(status))
 
-		RequestsHandled.WithLabelValues(service, method, status, path).Inc()
-		RequestDuration.WithLabelValues(service, method, status, path).Observe(duration.Seconds())
-		RequestSize.WithLabelValues(service, method, status, path).Observe(float64(c.Request.ContentLength))
-		ResponseSize.WithLabelValues(service, method, status, path).Observe(float64(c.Writer.Size()))
-	}, nil
-}
+		span.SetAttributes(sc.ResponseTraceAttrs(semconv.ResponseTelemetry{
+			StatusCode: status,
+			WriteBytes: int64(c.Writer.Size()),
+		})...)
 
-func Routes(router *gin.Engine) {
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
-}
+		// Handle errors associated with the gin context.
+		// NOTE: this means we should put errors onto the gin context and not directly
+		// onto the span to have them recorded in application code.
+		if len(c.Errors) > 0 {
+			span.SetStatus(codes.Error, c.Errors.String())
+			for _, err := range c.Errors {
+				// use err.Err to unwrap the *gin.Error for the original type.
+				span.RecordError(err.Err)
+			}
+		}
 
-func Setup() error {
-	setup.Do(func() {
-		// Register the collectors
-		setupErr = initCollectors()
-	})
-	return setupErr
-}
+		// Record server-side attributes
+		var additional []attribute.KeyValue
+		if c.FullPath() != "" {
+			additional = append(additional, sc.Route(c.FullPath()))
+		}
+		if cfg.MetricAttributeFn != nil {
+			additional = append(additional, cfg.MetricAttributeFn(c.Request)...)
+		}
+		if cfg.GinMetricAttributeFn != nil {
+			additional = append(additional, cfg.GinMetricAttributeFn(c)...)
+		}
 
-func initCollectors() (err error) {
-	// Track all collectors to register at the end of the function.
-	// When adding new collectors make sure to increase the capacity.
-	collectors := make([]prometheus.Collector, 0, 4)
-
-	var httpCollectors []prometheus.Collector
-	if httpCollectors, err = initHTTPCollectors(); err != nil {
-		return err
+		// Record metrics
+		sc.RecordMetrics(ctx, semconv.ServerMetricData{
+			ServerName:   service,
+			ResponseSize: int64(c.Writer.Size()),
+			MetricAttributes: semconv.MetricAttributes{
+				Req:        c.Request,
+				StatusCode: status,
+				Additional: additional,
+			},
+			MetricData: semconv.MetricData{
+				RequestSize: c.Request.ContentLength,
+				ElapsedTime: float64(time.Since(started)) / float64(time.Millisecond),
+			},
+		})
 	}
-	collectors = append(collectors, httpCollectors...)
-
-	// Register the collectors
-	registerCollectors(collectors)
-	return nil
 }
 
-func registerCollectors(collectors []prometheus.Collector) {
-	var err error
-	// Register the collectors
-	for _, collector := range collectors {
-		if err = prometheus.Register(collector); err != nil {
-			err = fmt.Errorf("cannot register collector of type %T: %w", collector, err)
-			log.Warn().Err(err).Msg("collector already registered")
+func (cfg config) filter(c *gin.Context) bool {
+	for _, f := range cfg.Filters {
+		if !f(c.Request) {
+			return false
 		}
 	}
+
+	for _, f := range cfg.GinFilters {
+		if !f(c) {
+			return false
+		}
+	}
+
+	return true
 }

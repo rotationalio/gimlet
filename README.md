@@ -103,59 +103,66 @@ func NewServer(conf config.Config) {
 }
 ```
 
-## Prometheus Metrics
+## OpenTelemetry (Observability - o11y)
 
-Gimlet has middleware for collecting HTTP status to expose to [Prometheus](https://prometheus.io/) metrics for observability.
+Gimlet has middleware to provide spans to the context of a gin request so that a request can be traced across processes and metrics can be computed and collected by OpenTelemetry collectors for observability and debugging.
 
 You can quickly and easily get started with the `o11y` middleware as follows:
 
 ```go
-metrics, err := o11y.Metrics("myservice")
-router.Use(metrics)
+router.Use(o11y.Middleware("myservice"))
 ```
 
-NOTE: this isn't the preferred way to enable metrics; if you're also using logging you should enable the metrics in the logging middleware (see below).
+The middleware sets up a tracer and meter provider and also sets up an HTTP server specific meter to record HTTP request and response metrics by default.
 
-This method will setup the Prometheus collectors (returning an error if collectors have already been registered) and create middleware that will track the number of requests, the response latency in seconds, and the request/response sizes in bytes. All of these metrics are disambiguated by service (as specified in the middleware constructor), HTTP method, status code, and path.
+The middleware ensures the tracer is set on the gin context (and the golang context) and ensures that any propagation from previous services is carred forward. At the end of the request the metrics are recorded.
 
-To allow Prometheus to scrape your server for these metrics, you need to add a metrics endpoint, to set this up at `GET /metrics` you can:
-
-```go
-o11y.Routes(router)
-```
-
-Or you can manually register your own route:
+Inside of a gin handler func, you can create a child span to start recording attributes or events as follows:
 
 ```go
-router.GET("/mymetrics", gin.WrapH(promhttp.Handler()))
-```
+func UserDetail(c *gin.Context) {
+    _, span := tracer.Start(
+        c.Request.Context(), "userDetail",
+    )
+    defer span.End()
 
-You should put the metrics as high up the middleware chain as possible to ensure that true latencies and response codes are logged. This is also true of the logging middleware, but you can combine both logging and metrics by enabling metrics in logging:
-
-```go
-router.Use(logger.Logger("myservice", "1.1.0". true))
-```
-
-This is the preferred way to use the middleware in production code.
-
-### Manual use
-
-If you want to include HTTP metrics with other custom metrics, you can use the `Setup` method to initialize and register the collectors in the package:
-
-```go
-if err = o11y.Setup(); err != nil {
-    return err
+    if user, err := db.GetUser(c.Param("id")); err != nil {
+        c.Error(err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "could not retrieve user"})
+        return
+    }
+    span.SetAttributes(attribute.Key("userID").String(user.ID))
 }
 ```
 
-This method is safe to call multiple times and from multiple threads -- it will only setup the collectors once. Once they are setup you can use them directly:
+**NOTE**: You do not have to record errors on the span unless you with to record them on the child span. Any error logged by `c.Error()` will be recorded on the request span and the span's status will be set to Error.
+
+You can fully customize the behavior of the o11y middleware using `Option` functions passed to the `o11y.Middleware` function. The most notable are the `Filter` and `GinFilter` functions, which allow you to skip tracing of specific requests. This is particularly useful for kubernetes probes or status endpoints. For example:
 
 ```go
-statusText := strconv.Itoa(status)
-o11y.RequestsHandled.WithLabelValues("myservice", c.Request.Method, statusText, path).Inc()
-o11y.RequestDuration.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(time.Since(started).Seconds())
-o11y.RequestSize.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(float64(c.Request.ContentLength))
-o11y.ResponseSize.WithLabelValues("myservice", c.Request.Method, statusText, path).Observe(float64(c.Writer.Size()))
+func FilterProbes(r *http.Request) bool {
+    switch r.URL.Path {
+    case "/readyz", "/livez", "healthz":
+        return false
+    default:
+        return true
+    }
+}
+
+func FilterStatus(c *gin.Context) bool {
+    if c.FullPath() == "/v1/status" {
+        return false
+    }
+    return true
+}
+
+router.Use(
+    o11y.Middleware("
+        myservice",
+        o11y.WithFilter(FilterProbes),
+        o11y.WithGinFilter(FilterStatus)
+    )
+)
 ```
 
 ## Quarterdeck & JWT Tokens

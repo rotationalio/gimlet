@@ -136,7 +136,7 @@ type TokenGenerator interface {
 }
 
 // CookieSetter is an interface that is configured to easily set both CSRF cookies
-// in the gin reponse (one for the reference that is httpOnly and the other for the
+// in the gin response (one for the reference that is httpOnly and the other for the
 // front-end to collect and add to the request header).
 type CookieSetter interface {
 	SetDoubleCookieToken(c *gin.Context) error
