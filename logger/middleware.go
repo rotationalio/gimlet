@@ -5,8 +5,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/ulid"
+)
+
+const (
+	LogLevelKey = "logger.level"
 )
 
 // Logger returns a new Gin middleware that performs logging for our JSON APIs using
@@ -59,6 +64,11 @@ func Logger(service, version string) gin.HandlerFunc {
 			msg = fmt.Sprintf("%s %s %s %d", service, c.Request.Method, c.Request.URL.Path, status)
 		default:
 			msg = fmt.Sprintf("%s %s %s [%d] %d errors occurred", service, c.Request.Method, c.Request.URL.Path, status, len(c.Errors))
+		}
+
+		if ll, ok := c.Get(LogLevelKey); ok {
+			logctx.WithLevel(ll.(zerolog.Level)).Msg(msg)
+			return
 		}
 
 		switch {

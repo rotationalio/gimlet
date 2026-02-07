@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet/logger"
 )
@@ -39,8 +40,14 @@ func TestLogger(t *testing.T) {
 	// This handler returns a 500 Internal Server Error response with multiple gin errors
 	router.GET("/err", func(c *gin.Context) {
 		c.Error(errors.New("could not connect to database"))
-		c.Error(errors.New("nil fiield response returned"))
+		c.Error(errors.New("nil field response returned"))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	})
+
+	// This handler returns a 200 OK response with a custom log level
+	router.GET("/custom", func(c *gin.Context) {
+		c.Set(logger.LogLevelKey, zerolog.DebugLevel)
+		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	srv := httptest.NewServer(router)
@@ -100,5 +107,18 @@ func TestLogger(t *testing.T) {
 			require.Contains(t, record, key, "expected log record to contain key: "+key)
 			require.NotEmpty(t, record[key], "expected log record key %s to not be empty", key)
 		}
+	})
+
+	t.Run("Custom", func(t *testing.T) {
+		t.Cleanup(sink.Reset)
+
+		rep, err := srv.Client().Get(srv.URL + "/custom")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, rep.StatusCode)
+
+		record := sink.Get(0)
+		require.NotNil(t, record, "expected log record to be created")
+		require.Equal(t, "debug", record["level"], "expected log level to be debug")
+		require.Equal(t, "testing GET /custom 200", record["message"], "expected log message to be 'testing GET /custom 200'")
 	})
 }
