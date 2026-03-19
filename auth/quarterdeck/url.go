@@ -1,11 +1,11 @@
 package quarterdeck
 
 import (
+	"log/slog"
 	"net/url"
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
 )
 
 // ConfigURL provides a thread-safe way to manage the login and reauthentication URLs
@@ -32,7 +32,7 @@ func (l *ConfigURL) Update(uri string) {
 
 	var err error
 	if l.url, err = url.Parse(uri); err != nil {
-		log.Warn().Err(err).Msg("could not parse the configuration URL")
+		slog.Default().Warn("could not parse the configuration URL", slog.Any("error", err))
 		l.url = nil
 	}
 }

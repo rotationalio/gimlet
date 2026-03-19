@@ -2,12 +2,12 @@ package csrf
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/gimlet"
 )
 
@@ -55,7 +55,12 @@ func DoubleCookie(verifier TokenVerifier) gin.HandlerFunc {
 		}
 
 		if cookie == "" || header == "" {
-			log.Debug().Bool("header_exists", header != "").Bool("cookie_exists", cookie != "").Msg("missing either csrf token header or reference cookie")
+			slog.DebugContext(
+				c.Request.Context(),
+				"missing either csrf token header or reference cookie",
+				slog.Bool("header_exists", header != ""),
+				slog.Bool("cookie_exists", cookie != ""),
+			)
 			gimlet.Abort(c, http.StatusForbidden, ErrCSRFVerification)
 			return
 		}

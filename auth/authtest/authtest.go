@@ -20,9 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"log/slog"
+
 	"github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
@@ -347,8 +348,7 @@ func (s *Server) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	// If we have multiple keys, return the first one; this should not happen
 	if len(keys) > 1 {
-		log.Warn().Str("keyID", kid.(string)).
-			Msg("multiple signing keys found for kid")
+		slog.Default().Warn("multiple signing keys found for kid", slog.String("keyID", kid.(string)))
 	}
 
 	return keys[0].Key, nil

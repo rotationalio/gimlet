@@ -7,7 +7,7 @@
 Add gimlet to your server application that uses the [Gin web framework](https://gin-gonic.com/) as follows:
 
 ```
-$ go get go.rtnl.ai/gimlet
+go get go.rtnl.ai/gimlet
 ```
 
 This will add the latest version of gimlet to your `go.mod` file. Middleware can be applied to all routes as follows:
@@ -32,72 +32,62 @@ See the documentation about configuring and using individual middleware.
 
 ## Logging
 
-Our logging middleware uses [`github.com/rs/zerolog`](https://github.com/rs/zerolog) instead of the default http logger. It has several helpers to combine logs into a JSON output that can be read by different log tools.
+Our logging middleware uses [`log/slog`](https://pkg.go.dev/log/slog) instead of the default http logger. It has several helpers to combine logs into a JSON output that can be read by different log tools.
 
-To use the middleware, add your service name and semantic version to each log message (Note that the last `false` argument is related to Prometheus metrics, discussed in the next section):
+To use the middleware, add your service name and semantic version to each log message:
 
 ```go
-router.Use(logger.Logger("myservice", "1.1.0". false))
+router.Use(logger.Logger("myservice", "1.1.0"))
 ```
 
-The logger handles errors using the `c.Errors` construct. If there is 1 error, then `log.With().Err(c.Errors()[0])` is used, otherwise `log.With().Errs(c.Errors())` is used. For example:
+The logger handles errors using the `c.Errors` construct. If there is 1 error, then it is included as a single error attribute, otherwise all errors are included as an errors array. For example:
 
 ```go
 func MyHandler(c *gin.Context) {
     c.Error(errors.New("something bad happened"))
-    c.JSON(http.StatusBadRequest, gin{"error": "could not complete request"})
+    c.JSON(http.StatusBadRequest, gin.H{"error": "could not complete request"})
 }
 ```
 
-Will ensure that "something bad happened" is logged with the errors. Note that 400 errors are `log.Warn`, 500 errors are `log.Error` and all others are `log.Info`.
+Will ensure that "something bad happened" is logged with the errors. Note that 400 errors are logged at warn level, 500 errors are logged at error level and all others are logged at info level.
 
 If you would like to add logs related to a specific request, using the `Tracing` functionality. This will ensure the request ID for all log messages is shared so that you can track a single request across multiple log messages.
 
 ```go
 func MyHandler(c *gin.Context) {
     log := logger.Tracing(c)
-    log.Info().Msg("something happened during this request")
+    log.InfoContext(c.Request.Context(), "something happened during this request")
 }
 ```
 
-NOTE: this package also provides configuration handlers for decoding log levels with `confire` and for setting GCP levels from zerolog levels. Most log configuration looks like:
+**IMPORTANT: When a context is available, prefer context-aware slog APIs (for example, `slog.InfoContext()` instead of `slog.Info()`) so trace and log correlation is preserved.**
+
+NOTE: this package also provides configuration handlers for decoding log levels with `confire`. Most log configuration looks like:
 
 ```go
 type Config struct {
     LogLevel     logger.LevelDecoder `split_words:"true" default:"info" desc:"specify the verbosity of logging (trace, debug, info, warn, error, fatal panic)"`
-	ConsoleLog   bool                `split_words:"true" default:"false" desc:"if true logs colorized human readable output instead of json"`
+    ConsoleLog   bool                `split_words:"true" default:"false" desc:"if true logs colorized human readable output instead of json"`
 }
 
-func (c Config) GetLogLevel() zerolog.Level {
-	return zerolog.Level(c.LogLevel)
+func (c Config) GetLogLevel() slog.Level {
+    return c.LogLevel.Level()
 }
 ```
 
-And then zerolog is configured via:
+And then slog is configured via:
 
 ```go
-func init() {
-	// Initializes zerolog with our default logging requirements
-	zerolog.TimeFieldFormat = time.RFC3339
-	zerolog.TimestampFieldName = logger.GCPFieldKeyTime
-	zerolog.MessageFieldName = logger.GCPFieldKeyMsg
-
-	// Add the severity hook for GCP logging
-	var gcpHook logger.SeverityHook
-	log.Logger = zerolog.New(os.Stdout).Hook(gcpHook).With().Timestamp().Logger()
-}
-
 func NewServer(conf config.Config) {
     ...
 
-    // Set the global level
-	zerolog.SetGlobalLevel(conf.GetLogLevel())
-
-	// Set human readable logging if configured
-	if conf.ConsoleLog {
-		console := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-		log.Logger = zerolog.New(console).With().Timestamp().Logger()
-	}
+    // Configure global level and optional console output
+    opts := &slog.HandlerOptions{Level: conf.GetLogLevel()}
+    h := slog.NewJSONHandler(os.Stdout, opts)
+    if conf.ConsoleLog {
+        h = slog.NewTextHandler(os.Stdout, opts)
+    }
+    slog.SetDefault(slog.New(h))
 
     ...
 }
@@ -260,7 +250,7 @@ func TestMyRoute(t *testing.T) {
     claims.SetSubjectID(auth.SubjectUser, ulid.Make())
 
     accessToken, err := srv.CreateAccessToken(claims)
-	require.NoError(t, err, "could not create access token")
+    require.NoError(t, err, "could not create access token")
 
     // Create a new request.
     req, _ := http.NewRequest(http.MethodGet, "/", nil)
@@ -283,10 +273,10 @@ The rate limit middleware can be created with a configuration:
 
 ```go
 type Config struct {
-	Type     string        `default:"constant" desc:"type of rate limiter to use; either ipaddr or constant"`
-	Limit    float64       `default:"4.0" desc:"number of tokens that can be added to the ratelimit token bucket per second"`
-	Burst    int           `default:"32" desc:"maximum number of tokens/requests in the ratelimit token bucket"`
-	CacheTTL time.Duration `split_words:"true" default:"10m" desc:"interval at which the ratelimit token bucket is cleaned up, removing old IP addresses"`
+    Type     string        `default:"constant" desc:"type of rate limiter to use; either ipaddr or constant"`
+    Limit    float64       `default:"4.0" desc:"number of tokens that can be added to the ratelimit token bucket per second"`
+    Burst    int           `default:"32" desc:"maximum number of tokens/requests in the ratelimit token bucket"`
+    CacheTTL time.Duration `split_words:"true" default:"10m" desc:"interval at which the ratelimit token bucket is cleaned up, removing old IP addresses"`
 }
 ```
 
