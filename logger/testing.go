@@ -62,6 +62,12 @@ func TestSink() *Sink {
 // Custom [slog.Handler] for testing
 //=============================================================================
 
+// NewTestHandler creates a new test handler that writes logs to the given
+// [testing.TB].
+func NewTestHandler(tb testing.TB) slog.Handler {
+	return &testHandler{tb: tb}
+}
+
 // testHandler formats logs as JSON and sends one line per record to tb.Log.
 // topAttrs: WithAttrs before any WithGroup. segments: each group and its scoped attrs.
 type testHandler struct {
@@ -90,9 +96,8 @@ func (h *testHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	// Apply each group segment in order.
 	for _, seg := range h.segments {
-		// Only open the group if there are attrs to add.
+		jh = jh.WithGroup(seg.name)
 		if len(seg.attrs) > 0 {
-			jh = jh.WithGroup(seg.name)
 			jh = jh.WithAttrs(seg.attrs)
 		}
 	}

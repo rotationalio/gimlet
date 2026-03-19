@@ -1,4 +1,4 @@
-package logger
+package logger_test
 
 import (
 	"context"
@@ -7,39 +7,61 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/slogtest"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.rtnl.ai/gimlet/logger"
 )
+
+// TestTestHandler runs the standard library slog conformance suite against testHandler.
+func TestTestHandler(t *testing.T) {
+	tb := &logCaptureTB{T: t, sink: logger.TestSink()}
+	defer logger.ResetLogger()
+	h := logger.NewTestHandler(tb)
+
+	results := func() []map[string]any {
+		out := make([]map[string]any, 0, len(tb.sink.Logs()))
+		for _, log := range tb.sink.Logs() {
+			var m map[string]any
+			require.NoError(t, json.Unmarshal([]byte(log), &m))
+			out = append(out, m)
+		}
+		return out
+	}
+
+	err := slogtest.TestHandler(h, results)
+	require.NoError(t, err)
+}
 
 // TestTestHandler_GroupSegments checks that each group keeps its own WithAttrs
 // (same shape as slog.With(...).WithGroup("foo").With(...).WithGroup("bar").With(...)).
 func TestTestHandler_GroupSegments(t *testing.T) {
-	tb := &captureTB{T: t}
-	h := &testHandler{tb: tb}
+	tb := &logCaptureTB{T: t, sink: logger.TestSink()}
+	defer logger.ResetLogger()
 
-	var jh slog.Handler = h
+	h := logger.NewTestHandler(tb)
 
 	// Top-level attr (no group yet).
-	jh = jh.WithAttrs([]slog.Attr{slog.Int("top", 1)})
+	h = h.WithAttrs([]slog.Attr{slog.Int("top", 1)})
 
 	// Open group "foo"; next WithAttrs will belong to foo.
-	jh = jh.WithGroup("foo")
-	jh = jh.WithAttrs([]slog.Attr{slog.Int("a", 2)})
+	h = h.WithGroup("foo")
+	h = h.WithAttrs([]slog.Attr{slog.Int("a", 2)})
 
 	// Open nested group "bar" under foo; next WithAttrs belong to bar.
-	jh = jh.WithGroup("bar")
-	jh = jh.WithAttrs([]slog.Attr{slog.Int("b", 3)})
+	h = h.WithGroup("bar")
+	h = h.WithAttrs([]slog.Attr{slog.Int("b", 3)})
 
 	// Group with no attrs.
-	jh = jh.WithGroup("baz")
+	h = h.WithGroup("baz")
 
 	// Do the log call.
 	r := slog.NewRecord(time.Unix(0, 0).UTC(), slog.LevelInfo, "msg", 0)
-	_ = jh.Handle(context.Background(), r)
-	require.Len(t, tb.lines, 1)
+	_ = h.Handle(context.Background(), r)
+	require.Len(t, tb.sink.Logs(), 1)
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(tb.lines[0]), &m))
+	require.NoError(t, json.Unmarshal([]byte(tb.sink.Logs()[0]), &m))
 
 	// "top" should be a root JSON key
 	require.Equal(t, float64(1), m["top"])
@@ -63,12 +85,13 @@ func TestTestHandler_GroupSegments(t *testing.T) {
 	require.False(t, hasBazRoot, "baz should not be a root key")
 }
 
-// captureTB satisfies testing.TB via embedding *testing.T and records Log output.
-type captureTB struct {
+// logCaptureTB satisfies [testing.TB] via embedding [testing.T] and records Log
+// output using a [logger.Sink].
+type logCaptureTB struct {
 	*testing.T
-	lines []string
+	sink *logger.Sink
 }
 
-func (c *captureTB) Log(args ...any) {
-	c.lines = append(c.lines, strings.TrimSpace(fmt.Sprint(args...)))
+func (c *logCaptureTB) Log(args ...any) {
+	c.sink.Write([]byte(strings.TrimSpace(fmt.Sprint(args...))))
 }
