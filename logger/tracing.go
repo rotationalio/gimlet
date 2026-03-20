@@ -1,18 +1,18 @@
 package logger
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/gimlet"
 )
 
-func Tracing(c any) zerolog.Logger {
+func Tracing(c any) *slog.Logger {
 	requestID, ok := RequestID(c)
 	if ok {
-		return log.With().Str("request_id", requestID).Logger()
+		return slog.Default().With(slog.String("request_id", requestID))
 	}
-	return log.With().Logger()
+	return slog.Default()
 }
 
 func SetRequestID(c *gin.Context, requestID string) {

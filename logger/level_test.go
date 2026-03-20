@@ -3,40 +3,26 @@ package logger_test
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"go.rtnl.ai/gimlet/logger"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLevelDecoder(t *testing.T) {
 	testTable := []struct {
 		value    string
-		expected zerolog.Level
+		expected slog.Level
 	}{
-		{
-			"panic", zerolog.PanicLevel,
-		},
-		{
-			"FATAL", zerolog.FatalLevel,
-		},
-		{
-			"Error", zerolog.ErrorLevel,
-		},
-		{
-			"   warn   ", zerolog.WarnLevel,
-		},
-		{
-			"iNFo", zerolog.InfoLevel,
-		},
-		{
-			"debug", zerolog.DebugLevel,
-		},
-		{
-			"trace", zerolog.TraceLevel,
-		},
+		{"panic", slog.LevelError},
+		{"FATAL", slog.LevelError},
+		{"Error", slog.LevelError},
+		{"   warn   ", slog.LevelWarn},
+		{"iNFo", slog.LevelInfo},
+		{"debug", slog.LevelDebug},
+		{"trace", slog.LevelDebug},
 	}
 
 	// Test valid cases
@@ -44,7 +30,7 @@ func TestLevelDecoder(t *testing.T) {
 		var level logger.LevelDecoder
 		err := level.Decode(testCase.value)
 		require.NoError(t, err)
-		require.Equal(t, testCase.expected, zerolog.Level(level))
+		require.Equal(t, testCase.expected, level.Level())
 	}
 
 	// Test error case
@@ -61,26 +47,22 @@ func TestUnmarshaler(t *testing.T) {
 	var jsonConf Config
 	err := json.Unmarshal([]byte(`{"level": "panic"}`), &jsonConf)
 	require.NoError(t, err, "could not unmarshal level decoder in json file")
-	require.Equal(t, zerolog.PanicLevel, zerolog.Level(jsonConf.Level))
+	require.Equal(t, slog.LevelError, jsonConf.Level.Level())
 }
 
 func TestMarshaler(t *testing.T) {
 	confs := []struct {
 		Level logger.LevelDecoder `yaml:"level" json:"level"`
 	}{
-		{logger.LevelDecoder(zerolog.PanicLevel)},
-		{logger.LevelDecoder(zerolog.FatalLevel)},
-		{logger.LevelDecoder(zerolog.ErrorLevel)},
-		{logger.LevelDecoder(zerolog.WarnLevel)},
-		{logger.LevelDecoder(zerolog.InfoLevel)},
-		{logger.LevelDecoder(zerolog.DebugLevel)},
-		{logger.LevelDecoder(zerolog.TraceLevel)},
+		{logger.LevelDecoder(slog.LevelError)},
+		{logger.LevelDecoder(slog.LevelWarn)},
+		{logger.LevelDecoder(slog.LevelInfo)},
+		{logger.LevelDecoder(slog.LevelDebug)},
 	}
 
 	for _, conf := range confs {
 		data, err := json.Marshal(conf)
 		require.NoError(t, err, "could not marshal data into json")
-		require.Equal(t, []byte(fmt.Sprintf(`{"level":%q}`, &conf.Level)), data)
+		require.Equal(t, []byte(fmt.Sprintf(`{"level":%q}`, conf.Level.String())), data)
 	}
-
 }

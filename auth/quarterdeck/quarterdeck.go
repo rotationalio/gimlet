@@ -9,11 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
 	"go.rtnl.ai/x/api"
@@ -204,8 +205,7 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	// If we have multiple keys, return the first one; this should not happen
 	if len(keys) > 1 {
-		log.Warn().Str("keyID", keyID.String()).
-			Msg("multiple signing keys found for kid")
+		slog.Warn("multiple signing keys found for kid", slog.String("keyID", keyID.String()))
 	}
 
 	return keys[0].Key, nil
@@ -249,7 +249,7 @@ func (s *Quarterdeck) Run() {
 	// Synchronize then schedule the next synchronization
 	time.AfterFunc(wait, func() {
 		if err := s.Sync(); err != nil {
-			log.Error().Err(err).Msg("could not synchronize keys with Quarterdeck")
+			slog.Error("could not synchronize keys with Quarterdeck", slog.Any("error", err))
 		}
 		s.Run() // Restart the synchronization process
 	})
@@ -458,6 +458,6 @@ func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshTo
 
 func notify(msg string) backoff.Notify {
 	return func(err error, delay time.Duration) {
-		log.Warn().Err(err).Dur("delay", delay).Msg(msg)
+		slog.Warn(msg, slog.Any("error", err), slog.Duration("delay", delay))
 	}
 }

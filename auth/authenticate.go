@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
@@ -67,14 +68,14 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 			// cookie based reauthentication insecure, and thus it is not handled
 			// automatically by this middleware.
 			log := logger.Tracing(c)
-			log.Debug().Err(err).Msg("could not retrieve access token")
+			log.DebugContext(c.Request.Context(), "could not retrieve access token", slog.Any("error", err))
 			return nil, ErrAuthRequired
 		}
 
 		// Verify the access token is authorized for use and extract claims.
 		if claims, err = auth.Verify(accessToken); err != nil {
 			log := logger.Tracing(c)
-			log.Debug().Err(err).Msg("could not verify access token")
+			log.DebugContext(c.Request.Context(), "could not verify access token", slog.Any("error", err))
 
 			// Attempt to reauthenticate if a reauthentication handler is available.
 			if reauthenticate != nil {
@@ -98,9 +99,9 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 						// Return the refreshed claims.
 						return refreshed.Claims, nil
 					}
-					log.Debug().Err(err).Msg("could not reauthenticate")
+					log.DebugContext(c.Request.Context(), "could not reauthenticate", slog.Any("error", err))
 				}
-				log.Debug().Err(err).Msg("no refresh token available for reauthentication")
+				log.DebugContext(c.Request.Context(), "no refresh token available for reauthentication", slog.Any("error", err))
 			}
 			return nil, ErrAuthRequired
 		}
@@ -131,7 +132,7 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 					// If the login failure handler returns an error, log it and
 					// return a 401 Unauthorized as the default behavior.
 					log := logger.Tracing(c)
-					log.Debug().Err(err).Msg("login failure handler returned an error")
+					log.DebugContext(c.Request.Context(), "login failure handler returned an error", slog.Any("error", err))
 					gimlet.Abort(c, http.StatusUnauthorized, ErrAuthRequired)
 					return
 				}

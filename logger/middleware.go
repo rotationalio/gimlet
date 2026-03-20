@@ -2,11 +2,10 @@ package logger
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"go.rtnl.ai/ulid"
 )
 
@@ -15,8 +14,7 @@ const (
 )
 
 // Logger returns a new Gin middleware that performs logging for our JSON APIs using
-// zerolog rather than the default Gin logger which is a standard HTTP logger.
-// NOTE: we previously used github.com/dn365/gin-zerolog but wanted more customization.
+// slog rather than the default Gin logger which is a standard HTTP logger.
 func Logger(service, version string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Before request
@@ -36,25 +34,26 @@ func Logger(service, version string) gin.HandlerFunc {
 
 		// After request
 		status := c.Writer.Status()
-		logctx := log.With().
-			Str("path", path).
-			Str("service", service).
-			Str("version", version).
-			Str("method", c.Request.Method).
-			Dur("resp_time", time.Since(started)).
-			Int("resp_bytes", c.Writer.Size()).
-			Int("status", status).
-			Str("client_ip", c.ClientIP()).
-			Str("request_id", requestID).
-			Logger()
 
 		// Log any errors that were added to the context
+		ctx := c.Request.Context()
+		attrs := []slog.Attr{
+			slog.String("path", path),
+			slog.String("service", service),
+			slog.String("version", version),
+			slog.String("method", c.Request.Method),
+			slog.Duration("resp_time", time.Since(started)),
+			slog.Int("resp_bytes", c.Writer.Size()),
+			slog.Int("status", status),
+			slog.String("client_ip", c.ClientIP()),
+			slog.String("request_id", requestID),
+		}
 		if len(c.Errors) > 0 {
 			errs := make([]error, 0, len(c.Errors))
 			for _, err := range c.Errors {
 				errs = append(errs, err)
 			}
-			logctx = logctx.With().Errs("errors", errs).Logger()
+			attrs = append(attrs, slog.Any("errors", errs))
 		}
 
 		// Create the message to send to the logger.
@@ -67,17 +66,19 @@ func Logger(service, version string) gin.HandlerFunc {
 		}
 
 		if ll, ok := c.Get(LogLevelKey); ok {
-			logctx.WithLevel(ll.(zerolog.Level)).Msg(msg)
-			return
+			if level, ok := ll.(slog.Level); ok {
+				slog.LogAttrs(ctx, level, msg, attrs...)
+				return
+			}
 		}
 
 		switch {
 		case status >= 400 && status < 500:
-			logctx.Warn().Msg(msg)
+			slog.LogAttrs(ctx, slog.LevelWarn, msg, attrs...)
 		case status >= 500:
-			logctx.Error().Msg(msg)
+			slog.LogAttrs(ctx, slog.LevelError, msg, attrs...)
 		default:
-			logctx.Info().Msg(msg)
+			slog.LogAttrs(ctx, slog.LevelInfo, msg, attrs...)
 		}
 	}
 }

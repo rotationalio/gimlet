@@ -3,13 +3,15 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
-
-	"github.com/rs/zerolog"
 )
 
-// LogLevelDecoder deserializes the log level from a config string.
-type LevelDecoder zerolog.Level
+// LevelDecoder deserializes the log level from a config string.
+// String names (panic, fatal, error, warn, info, debug, trace) map to slog.Level
+// as follows: trace/debug → LevelDebug, info → LevelInfo, warn → LevelWarn,
+// error/fatal/panic → LevelError.
+type LevelDecoder slog.Level
 
 // Names of log levels for use in encoding/decoding from strings.
 const (
@@ -26,43 +28,36 @@ const (
 func (ll *LevelDecoder) Decode(value string) error {
 	value = strings.TrimSpace(strings.ToLower(value))
 	switch value {
-	case llPanic:
-		*ll = LevelDecoder(zerolog.PanicLevel)
-	case llFatal:
-		*ll = LevelDecoder(zerolog.FatalLevel)
-	case llError:
-		*ll = LevelDecoder(zerolog.ErrorLevel)
+	case llPanic, llFatal, llError:
+		*ll = LevelDecoder(slog.LevelError)
 	case llWarn:
-		*ll = LevelDecoder(zerolog.WarnLevel)
+		*ll = LevelDecoder(slog.LevelWarn)
 	case llInfo:
-		*ll = LevelDecoder(zerolog.InfoLevel)
-	case llDebug:
-		*ll = LevelDecoder(zerolog.DebugLevel)
-	case llTrace:
-		*ll = LevelDecoder(zerolog.TraceLevel)
+		*ll = LevelDecoder(slog.LevelInfo)
+	case llDebug, llTrace:
+		*ll = LevelDecoder(slog.LevelDebug)
 	default:
 		return fmt.Errorf("unknown log level %q", value)
 	}
 	return nil
 }
 
-// Encode converts the loglevel into a string for use in YAML and JSON
-func (ll *LevelDecoder) Encode() (string, error) {
-	switch zerolog.Level(*ll) {
-	case zerolog.PanicLevel:
-		return llPanic, nil
-	case zerolog.FatalLevel:
-		return llFatal, nil
-	case zerolog.ErrorLevel:
+// Level returns the slog.Level for use when setting handler level.
+func (ll LevelDecoder) Level() slog.Level {
+	return slog.Level(ll)
+}
+
+// Encode converts the log level into a string for use in YAML and JSON.
+func (ll LevelDecoder) Encode() (string, error) {
+	switch slog.Level(ll) {
+	case slog.LevelError:
 		return llError, nil
-	case zerolog.WarnLevel:
+	case slog.LevelWarn:
 		return llWarn, nil
-	case zerolog.InfoLevel:
+	case slog.LevelInfo:
 		return llInfo, nil
-	case zerolog.DebugLevel:
+	case slog.LevelDebug:
 		return llDebug, nil
-	case zerolog.TraceLevel:
-		return llTrace, nil
 	default:
 		return "", fmt.Errorf("unknown log level %d", ll)
 	}

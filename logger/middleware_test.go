@@ -2,12 +2,12 @@ package logger_test
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"go.rtnl.ai/gimlet/logger"
 )
@@ -15,7 +15,7 @@ import (
 var expectedKeys = []string{
 	"path", "service", "version", "method", "resp_time",
 	"resp_bytes", "status", "client_ip", "request_id",
-	"level", "message", "severity", "time",
+	"level", "msg", "time",
 }
 
 func TestLogger(t *testing.T) {
@@ -46,7 +46,7 @@ func TestLogger(t *testing.T) {
 
 	// This handler returns a 200 OK response with a custom log level
 	router.GET("/custom", func(c *gin.Context) {
-		c.Set(logger.LogLevelKey, zerolog.DebugLevel)
+		c.Set(logger.LogLevelKey, slog.LevelDebug)
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
@@ -62,7 +62,7 @@ func TestLogger(t *testing.T) {
 
 		record := sink.Get(0)
 		require.NotNil(t, record, "expected log record to be created")
-		require.Equal(t, "info", record["level"], "expected log level to be info")
+		require.Equal(t, "INFO", record["level"], "expected log level to be INFO")
 		require.NotContains(t, record, "errors", "expected log record to not contain errors key")
 
 		for _, key := range expectedKeys {
@@ -80,7 +80,7 @@ func TestLogger(t *testing.T) {
 
 		record := sink.Get(0)
 		require.NotNil(t, record, "expected log record to be created")
-		require.Equal(t, "warn", record["level"], "expected log level to be warn")
+		require.Equal(t, "WARN", record["level"], "expected log level to be WARN")
 		require.Contains(t, record, "errors", "expected log record to contain errors key")
 		require.Len(t, record["errors"], 1, "expected log record to contain one error")
 
@@ -99,7 +99,7 @@ func TestLogger(t *testing.T) {
 
 		record := sink.Get(0)
 		require.NotNil(t, record, "expected log record to be created")
-		require.Equal(t, "error", record["level"], "expected log level to be error")
+		require.Equal(t, "ERROR", record["level"], "expected log level to be ERROR")
 		require.Contains(t, record, "errors", "expected log record to contain errors key")
 		require.Len(t, record["errors"], 2, "expected log record to contain two errors")
 
@@ -118,7 +118,7 @@ func TestLogger(t *testing.T) {
 
 		record := sink.Get(0)
 		require.NotNil(t, record, "expected log record to be created")
-		require.Equal(t, "debug", record["level"], "expected log level to be debug")
-		require.Equal(t, "testing GET /custom 200", record["message"], "expected log message to be 'testing GET /custom 200'")
+		require.Equal(t, "DEBUG", record["level"], "expected log level to be debug")
+		require.Equal(t, "testing GET /custom 200", record["msg"], "expected log message to be 'testing GET /custom 200'")
 	})
 }
