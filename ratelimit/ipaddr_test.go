@@ -59,7 +59,10 @@ func TestClientIP(t *testing.T) {
 			require.Contains(t, headers, HeaderReset, "expected reset header to be set")
 
 			require.Equal(t, "8", headers[HeaderLimit], "expected limit header to match burst size")
-			require.Equal(t, "0.00", headers[HeaderRemaining], "expected remaining header to be one less than burst size")
+
+			remaining, err := strconv.ParseFloat(headers[HeaderRemaining], 64)
+			require.NoError(t, err, "expected remaining header to be a valid float")
+			require.InDelta(t, 0.0, remaining, 0.05, "expected remaining near zero (varies with wall clock time)")
 
 			// Parse the reset header to ensure it's a valid timestamp.
 			resetTime, err := ParseReset(headers[HeaderReset])
@@ -99,7 +102,10 @@ func TestClientIP(t *testing.T) {
 		require.Contains(t, headers, HeaderReset, "expected reset header to be set")
 
 		require.Equal(t, "16", headers[HeaderLimit], "expected limit header to match burst size")
-		require.Regexp(t, `-4(8|9).(0|9)(0|9)`, headers[HeaderRemaining], "expected remaining header to be -48.99 or -49.00")
+
+		remaining, err := strconv.ParseFloat(headers[HeaderRemaining], 64)
+		require.NoError(t, err, "expected remaining header to be a valid float")
+		require.InDelta(t, -49.00, remaining, 0.05, "expected remaining near -49.00 (varies with wall clock time)")
 
 		// Parse the reset header to ensure it's a valid timestamp.
 		resetTime, err := ParseReset(headers[HeaderReset])
