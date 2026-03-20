@@ -32,7 +32,7 @@ func (l *ConfigURL) Update(uri string) {
 
 	var err error
 	if l.url, err = url.Parse(uri); err != nil {
-		slog.Default().Warn("could not parse the configuration URL", slog.Any("error", err))
+		slog.Warn("could not parse the configuration URL", slog.Any("error", err))
 		l.url = nil
 	}
 }

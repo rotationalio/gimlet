@@ -348,7 +348,7 @@ func (s *Server) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	// If we have multiple keys, return the first one; this should not happen
 	if len(keys) > 1 {
-		slog.Default().Warn("multiple signing keys found for kid", slog.String("keyID", kid.(string)))
+		slog.Warn("multiple signing keys found for kid", slog.String("keyID", kid.(string)))
 	}
 
 	return keys[0].Key, nil
