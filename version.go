@@ -12,10 +12,10 @@ import (
 // ensure compatibility with third party libraries.
 const (
 	VersionMajor         = 1
-	VersionMinor         = 5
+	VersionMinor         = 6
 	VersionPatch         = 0
 	VersionReleaseLevel  = "final"
-	VersionReleaseNumber = 11
+	VersionReleaseNumber = 12
 )
 
 // Version returns the semantic version for the current build.
