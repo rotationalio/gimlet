@@ -5,14 +5,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/x/rlog"
 )
 
-func Tracing(c any) *slog.Logger {
+func Tracing(c any) *rlog.Logger {
 	requestID, ok := RequestID(c)
 	if ok {
-		return slog.Default().With(slog.String("request_id", requestID))
+		return rlog.New(rlog.Default().With(slog.String("request_id", requestID)))
 	}
-	return slog.Default()
+	return rlog.Default()
 }
 
 func SetRequestID(c *gin.Context, requestID string) {

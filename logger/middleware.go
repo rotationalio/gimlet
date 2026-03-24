@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/ulid"
+	"go.rtnl.ai/x/rlog"
 )
 
 const (
@@ -14,7 +15,8 @@ const (
 )
 
 // Logger returns a new Gin middleware that performs logging for our JSON APIs using
-// slog rather than the default Gin logger which is a standard HTTP logger.
+// [go.rtnl.ai/x/rlog] rather than the default Gin logger which is a standard
+// HTTP logger.
 func Logger(service, version string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Before request
@@ -36,7 +38,6 @@ func Logger(service, version string) gin.HandlerFunc {
 		status := c.Writer.Status()
 
 		// Log any errors that were added to the context
-		ctx := c.Request.Context()
 		attrs := []slog.Attr{
 			slog.String("path", path),
 			slog.String("service", service),
@@ -65,20 +66,21 @@ func Logger(service, version string) gin.HandlerFunc {
 			msg = fmt.Sprintf("%s %s %s [%d] %d errors occurred", service, c.Request.Method, c.Request.URL.Path, status, len(c.Errors))
 		}
 
+		ctx := c.Request.Context()
 		if ll, ok := c.Get(LogLevelKey); ok {
 			if level, ok := ll.(slog.Level); ok {
-				slog.LogAttrs(ctx, level, msg, attrs...)
+				rlog.LogAttrs(ctx, level, msg, attrs...)
 				return
 			}
 		}
 
 		switch {
 		case status >= 400 && status < 500:
-			slog.LogAttrs(ctx, slog.LevelWarn, msg, attrs...)
+			rlog.WarnAttrs(ctx, msg, attrs...)
 		case status >= 500:
-			slog.LogAttrs(ctx, slog.LevelError, msg, attrs...)
+			rlog.ErrorAttrs(ctx, msg, attrs...)
 		default:
-			slog.LogAttrs(ctx, slog.LevelInfo, msg, attrs...)
+			rlog.InfoAttrs(ctx, msg, attrs...)
 		}
 	}
 }

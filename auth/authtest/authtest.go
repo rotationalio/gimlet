@@ -6,6 +6,7 @@ verification of JWT tokens rather than on providing mocking behavior the whole A
 package authtest
 
 import (
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -28,6 +29,7 @@ import (
 	"go.rtnl.ai/gimlet/auth"
 	"go.rtnl.ai/ulid"
 	"go.rtnl.ai/x/httpcc"
+	"go.rtnl.ai/x/rlog"
 )
 
 const (
@@ -348,7 +350,7 @@ func (s *Server) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	// If we have multiple keys, return the first one; this should not happen
 	if len(keys) > 1 {
-		slog.Warn("multiple signing keys found for kid", slog.String("keyID", kid.(string)))
+		rlog.WarnAttrs(context.Background(), "multiple signing keys found for kid", slog.String("keyID", kid.(string)))
 	}
 
 	return keys[0].Key, nil

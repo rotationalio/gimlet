@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/x/rlog"
 )
 
 // Parameters and headers for double-cookie submit CSRF protection.
@@ -55,7 +56,7 @@ func DoubleCookie(verifier TokenVerifier) gin.HandlerFunc {
 		}
 
 		if cookie == "" || header == "" {
-			slog.DebugContext(
+			rlog.DebugAttrs(
 				c.Request.Context(),
 				"missing either csrf token header or reference cookie",
 				slog.Bool("header_exists", header != ""),
