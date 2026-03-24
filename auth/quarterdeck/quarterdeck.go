@@ -19,6 +19,7 @@ import (
 	"go.rtnl.ai/ulid"
 	"go.rtnl.ai/x/api"
 	"go.rtnl.ai/x/backoff"
+	"go.rtnl.ai/x/rlog"
 )
 
 const (
@@ -205,7 +206,7 @@ func (s *Quarterdeck) GetKey(token *jwt.Token) (key interface{}, err error) {
 
 	// If we have multiple keys, return the first one; this should not happen
 	if len(keys) > 1 {
-		slog.Warn("multiple signing keys found for kid", slog.String("keyID", keyID.String()))
+		rlog.WarnAttrs(context.Background(), "multiple signing keys found for kid", slog.String("keyID", keyID.String()))
 	}
 
 	return keys[0].Key, nil
@@ -249,7 +250,7 @@ func (s *Quarterdeck) Run() {
 	// Synchronize then schedule the next synchronization
 	time.AfterFunc(wait, func() {
 		if err := s.Sync(); err != nil {
-			slog.Error("could not synchronize keys with Quarterdeck", slog.Any("error", err))
+			rlog.ErrorAttrs(context.Background(), "could not synchronize keys with Quarterdeck", slog.Any("error", err))
 		}
 		s.Run() // Restart the synchronization process
 	})
@@ -458,6 +459,6 @@ func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshTo
 
 func notify(msg string) backoff.Notify {
 	return func(err error, delay time.Duration) {
-		slog.Warn(msg, slog.Any("error", err), slog.Duration("delay", delay))
+		rlog.WarnAttrs(context.Background(), msg, slog.Any("error", err), slog.Duration("delay", delay))
 	}
 }

@@ -10,51 +10,92 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"go.rtnl.ai/x/rlog"
 )
 
 var (
-	mu   sync.Mutex
-	orig *slog.Logger
+	mu        sync.Mutex
+	orig      *rlog.Logger
+	origLevel slog.Level
 )
 
 //=============================================================================
 // Public testing helpers
 //=============================================================================
 
-// ResetLogger restores the default slog logger saved by Testing, Discard, or TestSink.
+// ResetLogger restores the default rlog/slog loggers saved by Testing, Discard, or TestSink.
 func ResetLogger() {
 	mu.Lock()
 	defer mu.Unlock()
+
 	if orig != nil {
-		slog.SetDefault(orig)
+		rlog.SetDefault(orig)
+		rlog.SetLevel(origLevel)
+		slog.SetDefault(orig.Logger)
 		orig = nil
 	}
 }
 
-// Testing sets slog's default logger to one that prints JSON lines via tb.Log.
+// Testing sets rlog/slog default loggers to ones that print JSON lines via tb.Log.
 func Testing(tb testing.TB) {
 	mu.Lock()
 	defer mu.Unlock()
-	orig = slog.Default()
-	slog.SetDefault(slog.New(&testHandler{tb: tb}))
+
+	// copy the original logger
+	aCopy := *rlog.Default()
+	orig = &aCopy
+	origLevel = rlog.Level()
+
+	// create a new logger that prints JSON lines via tb.Log
+	l := rlog.New(slog.New(&testHandler{tb: tb}))
+
+	// set the default logger to the new logger
+	rlog.SetDefault(l)
+	slog.SetDefault(l.Logger)
 }
 
-// Discard discards all log output during testing.
+// Discard sets rlog/slog default loggers to ones that discard all log output during testing.
 func Discard() {
 	mu.Lock()
 	defer mu.Unlock()
-	orig = slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	// copy the original logger
+	aCopy := *rlog.Default()
+	orig = &aCopy
+	origLevel = rlog.Level()
+
+	// create a new logger that discards all log output
+	opts := rlog.MergeWithCustomLevels(rlog.WithGlobalLevel(&slog.HandlerOptions{}))
+	h := slog.NewJSONHandler(io.Discard, opts)
+	l := rlog.New(slog.New(h))
+
+	// set the default logger to the new logger
+	rlog.SetDefault(l)
+	slog.SetDefault(l.Logger)
 }
 
-// TestSink sets the default logger to capture JSON lines in the returned Sink; call ResetLogger after.
+// TestSink sets rlog/slog default loggers to ones that capture JSON lines in the returned Sink; call ResetLogger after.
 func TestSink() *Sink {
 	mu.Lock()
 	defer mu.Unlock()
-	orig = slog.Default()
+
+	// copy the original logger
+	aCopy := *rlog.Default()
+	orig = &aCopy
+	origLevel = rlog.Level()
+
+	// create a new logger that captures JSON lines in the returned Sink
+	rlog.SetLevel(slog.LevelDebug)
 	sink := &Sink{}
-	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(sink, opts)))
+	opts := rlog.MergeWithCustomLevels(rlog.WithGlobalLevel(&slog.HandlerOptions{}))
+	h := slog.NewJSONHandler(sink, opts)
+	l := rlog.New(slog.New(h))
+
+	// set the default logger to the new logger
+	rlog.SetDefault(l)
+	slog.SetDefault(l.Logger)
+
 	return sink
 }
 

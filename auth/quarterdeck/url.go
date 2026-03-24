@@ -1,11 +1,13 @@
 package quarterdeck
 
 import (
+	"context"
 	"log/slog"
 	"net/url"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"go.rtnl.ai/x/rlog"
 )
 
 // ConfigURL provides a thread-safe way to manage the login and reauthentication URLs
@@ -32,7 +34,7 @@ func (l *ConfigURL) Update(uri string) {
 
 	var err error
 	if l.url, err = url.Parse(uri); err != nil {
-		slog.Warn("could not parse the configuration URL", slog.Any("error", err))
+		rlog.WarnAttrs(context.Background(), "could not parse the configuration URL", slog.Any("error", err))
 		l.url = nil
 	}
 }

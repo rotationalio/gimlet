@@ -32,7 +32,7 @@ See the documentation about configuring and using individual middleware.
 
 ## Logging
 
-Our logging middleware uses [`log/slog`](https://pkg.go.dev/log/slog) instead of the default http logger. It has several helpers to combine logs into a JSON output that can be read by different log tools.
+Our logging middleware uses [`go.rtnl.ai/x/rlog`](https://pkg.go.dev/go.rtnl.ai/x/rlog) for output instead of the default HTTP logger. Rlog is a thin layer over [`log/slog`](https://pkg.go.dev/log/slog): you still build attributes with `slog.String`, `slog.Any`, and so on, but the global default logger and level are owned by rlog.
 
 To use the middleware, add your service name and semantic version to each log message:
 
@@ -51,23 +51,54 @@ func MyHandler(c *gin.Context) {
 
 Will ensure that "something bad happened" is logged with the errors. Note that 400 errors are logged at warn level, 500 errors are logged at error level and all others are logged at info level.
 
-If you would like to add logs related to a specific request, using the `Tracing` functionality. This will ensure the request ID for all log messages is shared so that you can track a single request across multiple log messages.
+If you would like to add logs related to a specific request, use the `Tracing` helper. It returns an `*rlog.Logger` with the request ID attached so you can follow one request across log lines.
 
 ```go
 func MyHandler(c *gin.Context) {
     log := logger.Tracing(c)
-    log.InfoContext(c.Request.Context(), "something happened during this request")
+    log.InfoAttrs(c.Request.Context(), "something happened during this request")
 }
 ```
 
-**IMPORTANT: When a context is available, prefer context-aware slog APIs (for example, `slog.InfoContext()` instead of `slog.Info()`) so trace and log correlation is preserved.**
+With extra structured fields, pass `slog.Attr` values (variadic) after the message, for example `log.InfoAttrs(ctx, "user loaded", slog.String("user_id", id))`.
 
-NOTE: this package also provides configuration handlers for decoding log levels with `confire`. Most log configuration looks like:
+**IMPORTANT: When you have a request context, prefer rlog’s `*Attrs` methods (for example `InfoAttrs`, `DebugAttrs`, `WarnAttrs`, `ErrorAttrs`) and pass `c.Request.Context()` so records stay aligned with tracing. The `*Attrs` variants also avoid the extra work of slog’s generic key/value parsing.**
+
+### Initializing rlog in your application
+
+Gimlet’s logger middleware and `logger.Tracing` call `rlog.Default()`, so your `main` (or server constructor) should configure rlog once at startup. Rlog expects handlers to be built with [`rlog.MergeWithCustomLevels`](https://pkg.go.dev/go.rtnl.ai/x/rlog#MergeWithCustomLevels) (so custom levels such as trace map cleanly to JSON) and usually [`rlog.WithGlobalLevel`](https://pkg.go.dev/go.rtnl.ai/x/rlog#WithGlobalLevel) so the handler respects [`rlog.SetLevel`](https://pkg.go.dev/go.rtnl.ai/x/rlog#SetLevel).
+
+```go
+import (
+    "log/slog"
+    "os"
+
+    "go.rtnl.ai/x/rlog"
+)
+
+func initLogging(conf Config) {
+    rlog.SetLevel(conf.GetLogLevel())
+
+    opts := rlog.MergeWithCustomLevels(rlog.WithGlobalLevel(&slog.HandlerOptions{}))
+    var h slog.Handler
+    if conf.ConsoleLog {
+        h = slog.NewTextHandler(os.Stdout, opts)
+    } else {
+        h = slog.NewJSONHandler(os.Stdout, opts)
+    }
+    rlog.SetDefault(rlog.New(slog.New(h)))
+
+    // Optional: keep log/slog’s default in sync if any code still calls slog.Default().
+    slog.SetDefault(rlog.Default().Logger)
+}
+```
+
+Use [`rlog.LevelDecoder`](https://pkg.go.dev/go.rtnl.ai/x/rlog#LevelDecoder) in configuration structs so strings such as `TRACE`, `FATAL`, or `PANIC` decode correctly (for example with `confire`):
 
 ```go
 type Config struct {
-    LogLevel     logger.LevelDecoder `split_words:"true" default:"info" desc:"specify the verbosity of logging (trace, debug, info, warn, error, fatal panic)"`
-    ConsoleLog   bool                `split_words:"true" default:"false" desc:"if true logs colorized human readable output instead of json"`
+    LogLevel   rlog.LevelDecoder `split_words:"true" default:"info" desc:"specify the verbosity of logging (trace, debug, info, warn, error, fatal, panic)"`
+    ConsoleLog bool              `split_words:"true" default:"false" desc:"if true logs colorized human readable output instead of json"`
 }
 
 func (c Config) GetLogLevel() slog.Level {
@@ -75,23 +106,7 @@ func (c Config) GetLogLevel() slog.Level {
 }
 ```
 
-And then slog is configured via:
-
-```go
-func NewServer(conf config.Config) {
-    ...
-
-    // Configure global level and optional console output
-    opts := &slog.HandlerOptions{Level: conf.GetLogLevel()}
-    h := slog.NewJSONHandler(os.Stdout, opts)
-    if conf.ConsoleLog {
-        h = slog.NewTextHandler(os.Stdout, opts)
-    }
-    slog.SetDefault(slog.New(h))
-
-    ...
-}
-```
+In tests, you can point rlog at a capture sink or discard output with the helpers in [`go.rtnl.ai/gimlet/logger`](https://pkg.go.dev/go.rtnl.ai/gimlet/logger) (`logger.TestSink`, `logger.Discard`, `logger.ResetLogger`), which configure `rlog.SetDefault` for you.
 
 ## OpenTelemetry (Observability - o11y)
 
@@ -147,11 +162,11 @@ func FilterStatus(c *gin.Context) bool {
 }
 
 router.Use(
-    o11y.Middleware("
-        myservice",
+    o11y.Middleware(
+        "myservice",
         o11y.WithFilter(FilterProbes),
-        o11y.WithGinFilter(FilterStatus)
-    )
+        o11y.WithGinFilter(FilterStatus),
+    ),
 )
 ```
 

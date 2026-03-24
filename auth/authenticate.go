@@ -58,6 +58,8 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 	// Create the authentication handler that will be used to authenticate a request
 	// from the access token in the header or in cookies; reauthenticating if necessary.
 	authenticate := func(c *gin.Context) (claims *Claims, err error) {
+		log := logger.Tracing(c)
+
 		// Get the access token from the request, either from the header or cookies.
 		var accessToken string
 		if accessToken, err = GetAccessToken(c); err != nil {
@@ -67,15 +69,13 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 			// reauthenticate via a POST request to the server. However, this makes
 			// cookie based reauthentication insecure, and thus it is not handled
 			// automatically by this middleware.
-			log := logger.Tracing(c)
-			log.DebugContext(c.Request.Context(), "could not retrieve access token", slog.Any("error", err))
+			log.DebugAttrs(c.Request.Context(), "could not retrieve access token", slog.Any("error", err))
 			return nil, ErrAuthRequired
 		}
 
 		// Verify the access token is authorized for use and extract claims.
 		if claims, err = auth.Verify(accessToken); err != nil {
-			log := logger.Tracing(c)
-			log.DebugContext(c.Request.Context(), "could not verify access token", slog.Any("error", err))
+			log.DebugAttrs(c.Request.Context(), "could not verify access token", slog.Any("error", err))
 
 			// Attempt to reauthenticate if a reauthentication handler is available.
 			if reauthenticate != nil {
@@ -99,9 +99,9 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 						// Return the refreshed claims.
 						return refreshed.Claims, nil
 					}
-					log.DebugContext(c.Request.Context(), "could not reauthenticate", slog.Any("error", err))
+					log.DebugAttrs(c.Request.Context(), "could not reauthenticate", slog.Any("error", err))
 				}
-				log.DebugContext(c.Request.Context(), "no refresh token available for reauthentication", slog.Any("error", err))
+				log.DebugAttrs(c.Request.Context(), "no refresh token available for reauthentication", slog.Any("error", err))
 			}
 			return nil, ErrAuthRequired
 		}
@@ -132,7 +132,7 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 					// If the login failure handler returns an error, log it and
 					// return a 401 Unauthorized as the default behavior.
 					log := logger.Tracing(c)
-					log.DebugContext(c.Request.Context(), "login failure handler returned an error", slog.Any("error", err))
+					log.DebugAttrs(c.Request.Context(), "login failure handler returned an error", slog.Any("error", err))
 					gimlet.Abort(c, http.StatusUnauthorized, ErrAuthRequired)
 					return
 				}
