@@ -19,7 +19,7 @@ var expectedKeys = []string{
 }
 
 func TestLogger(t *testing.T) {
-	sink := logger.TestSink()
+	cap := logger.TestSink()
 	defer logger.ResetLogger()
 
 	gin.SetMode(gin.TestMode)
@@ -54,13 +54,16 @@ func TestLogger(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("Ok", func(t *testing.T) {
-		t.Cleanup(sink.Reset)
+		t.Cleanup(cap.Reset)
 
 		rep, err := srv.Client().Get(srv.URL + "/ok")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, rep.StatusCode)
 
-		record := sink.Get(0)
+		maps, err := cap.ResultMaps()
+		require.NoError(t, err)
+		require.Len(t, maps, 1)
+		record := maps[0]
 		require.NotNil(t, record, "expected log record to be created")
 		require.Equal(t, "INFO", record["level"], "expected log level to be INFO")
 		require.NotContains(t, record, "errors", "expected log record to not contain errors key")
@@ -72,13 +75,16 @@ func TestLogger(t *testing.T) {
 	})
 
 	t.Run("Bad", func(t *testing.T) {
-		t.Cleanup(sink.Reset)
+		t.Cleanup(cap.Reset)
 
 		rep, err := srv.Client().Get(srv.URL + "/bad")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusBadRequest, rep.StatusCode)
 
-		record := sink.Get(0)
+		maps, err := cap.ResultMaps()
+		require.NoError(t, err)
+		require.Len(t, maps, 1)
+		record := maps[0]
 		require.NotNil(t, record, "expected log record to be created")
 		require.Equal(t, "WARN", record["level"], "expected log level to be WARN")
 		require.Contains(t, record, "errors", "expected log record to contain errors key")
@@ -91,13 +97,16 @@ func TestLogger(t *testing.T) {
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		t.Cleanup(sink.Reset)
+		t.Cleanup(cap.Reset)
 
 		rep, err := srv.Client().Get(srv.URL + "/err")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusInternalServerError, rep.StatusCode)
 
-		record := sink.Get(0)
+		maps, err := cap.ResultMaps()
+		require.NoError(t, err)
+		require.Len(t, maps, 1)
+		record := maps[0]
 		require.NotNil(t, record, "expected log record to be created")
 		require.Equal(t, "ERROR", record["level"], "expected log level to be ERROR")
 		require.Contains(t, record, "errors", "expected log record to contain errors key")
@@ -110,13 +119,16 @@ func TestLogger(t *testing.T) {
 	})
 
 	t.Run("Custom", func(t *testing.T) {
-		t.Cleanup(sink.Reset)
+		t.Cleanup(cap.Reset)
 
 		rep, err := srv.Client().Get(srv.URL + "/custom")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, rep.StatusCode)
 
-		record := sink.Get(0)
+		maps, err := cap.ResultMaps()
+		require.NoError(t, err)
+		require.Len(t, maps, 1)
+		record := maps[0]
 		require.NotNil(t, record, "expected log record to be created")
 		require.Equal(t, "DEBUG", record["level"], "expected log level to be debug")
 		require.Equal(t, "testing GET /custom 200", record["msg"], "expected log message to be 'testing GET /custom 200'")

@@ -1,6 +1,6 @@
 module go.rtnl.ai/gimlet
 
-go 1.25.1
+go 1.25.8
 
 require (
 	github.com/gin-gonic/gin v1.11.0
@@ -15,7 +15,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.40.0
 	go.opentelemetry.io/otel/trace v1.40.0
 	go.rtnl.ai/ulid v1.2.0
-	go.rtnl.ai/x v1.12.0
+	go.rtnl.ai/x v1.12.1
 	golang.org/x/time v0.14.0
 )
 

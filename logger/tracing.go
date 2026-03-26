@@ -11,7 +11,7 @@ import (
 func Tracing(c any) *rlog.Logger {
 	requestID, ok := RequestID(c)
 	if ok {
-		return rlog.New(rlog.Default().With(slog.String("request_id", requestID)))
+		return rlog.With(slog.String("request_id", requestID))
 	}
 	return rlog.Default()
 }

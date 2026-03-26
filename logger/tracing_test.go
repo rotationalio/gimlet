@@ -18,19 +18,20 @@ func TestTracing(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "http://example.com/foo", nil)
 
-	sink := logger.TestSink()
+	cap := logger.TestSink()
 	defer logger.ResetLogger()
 
 	log := logger.Tracing(c)
 	log.Info("duck")
-	record := sink.Get(0)
-	require.NotNil(t, record, "expected log record to be created")
+	maps, err := cap.ResultMaps()
+	require.NoError(t, err)
+	require.Len(t, maps, 1)
+	record := maps[0]
 	require.Contains(t, record, "msg", "expected correct log message")
 	require.Equal(t, "duck", record["msg"], "expected log message to match")
 	require.NotContains(t, record, "request_id", "expected log without request ID")
 
-	// Reset the sink for the next test
-	sink.Reset()
+	cap.Reset()
 
 	// With a request ID
 	requestID := "testreq"
@@ -39,8 +40,10 @@ func TestTracing(t *testing.T) {
 	log = logger.Tracing(c)
 	log.Info("goose")
 
-	record = sink.Get(0)
-	require.NotNil(t, record, "expected log record to be created")
+	maps, err = cap.ResultMaps()
+	require.NoError(t, err)
+	require.Len(t, maps, 1)
+	record = maps[0]
 	require.Contains(t, record, "msg", "expected correct log message")
 	require.Equal(t, "goose", record["msg"], "expected log message to match")
 	require.Contains(t, record, "request_id", "expected log with request ID")

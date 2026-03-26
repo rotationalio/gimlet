@@ -87,9 +87,6 @@ func initLogging(conf Config) {
         h = slog.NewJSONHandler(os.Stdout, opts)
     }
     rlog.SetDefault(rlog.New(slog.New(h)))
-
-    // Optional: keep log/slog’s default in sync if any code still calls slog.Default().
-    slog.SetDefault(rlog.Default().Logger)
 }
 ```
 
@@ -106,7 +103,7 @@ func (c Config) GetLogLevel() slog.Level {
 }
 ```
 
-In tests, you can point rlog at a capture sink or discard output with the helpers in [`go.rtnl.ai/gimlet/logger`](https://pkg.go.dev/go.rtnl.ai/gimlet/logger) (`logger.TestSink`, `logger.Discard`, `logger.ResetLogger`), which configure `rlog.SetDefault` for you.
+In tests, use helpers in [`go.rtnl.ai/gimlet/logger`](https://pkg.go.dev/go.rtnl.ai/gimlet/logger): `logger.TestSink` returns a [`*rlog.CapturingTestHandler`](https://pkg.go.dev/go.rtnl.ai/x/rlog#CapturingTestHandler) and configures `rlog.SetDefault`; assert with [`ResultMaps`](https://pkg.go.dev/go.rtnl.ai/x/rlog#CapturingTestHandler.ResultMaps), [`Lines`](https://pkg.go.dev/go.rtnl.ai/x/rlog#CapturingTestHandler.Lines), or [`rlog.MustParseJSONLine`](https://pkg.go.dev/go.rtnl.ai/x/rlog#MustParseJSONLine). Also available: `logger.Discard`, `logger.ResetLogger`.
 
 ## OpenTelemetry (Observability - o11y)
 
