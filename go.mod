@@ -1,6 +1,6 @@
 module go.rtnl.ai/gimlet
 
-go 1.26.1
+go 1.25.8
 
 require (
 	github.com/gin-gonic/gin v1.11.0
