@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.rtnl.ai/x/rlog"
+	rlogtest "go.rtnl.ai/x/rlog/testing"
 )
 
 var (
@@ -37,7 +38,7 @@ func Testing(tb testing.TB) {
 	orig = &aCopy
 	origLevel = rlog.Level()
 
-	h := rlog.NewCapturingTestHandler(tb)
+	h := rlogtest.NewCapturingTestHandler(tb)
 	l := rlog.New(slog.New(h))
 	rlog.SetDefault(l)
 }
@@ -60,7 +61,7 @@ func Discard() {
 
 // TestSink configures [rlog.Default] to log into a new [rlog.CapturingTestHandler]
 // at debug level. Call [ResetLogger] when done.
-func TestSink() *rlog.CapturingTestHandler {
+func TestSink() *rlogtest.CapturingTestHandler {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -69,7 +70,7 @@ func TestSink() *rlog.CapturingTestHandler {
 	origLevel = rlog.Level()
 
 	rlog.SetLevel(slog.LevelDebug)
-	cap := rlog.NewCapturingTestHandler(nil)
+	cap := rlogtest.NewCapturingTestHandler(nil)
 	l := rlog.New(slog.New(cap))
 	rlog.SetDefault(l)
 
