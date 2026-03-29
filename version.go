@@ -13,9 +13,9 @@ import (
 const (
 	VersionMajor         = 1
 	VersionMinor         = 6
-	VersionPatch         = 1
+	VersionPatch         = 2
 	VersionReleaseLevel  = "final"
-	VersionReleaseNumber = 13
+	VersionReleaseNumber = 14
 )
 
 // Version returns the semantic version for the current build.
