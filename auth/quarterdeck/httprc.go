@@ -73,6 +73,11 @@ func (s *Quarterdeck) Do(req *http.Request, data interface{}) (rep *http.Respons
 			return nil, auth.ErrNotModified
 		}
 
+		// If the status code is 429 Too Many Requests, return a rate limited error message
+		if rep.StatusCode == http.StatusTooManyRequests {
+			return nil, auth.ErrRateLimited
+		}
+
 		out := make(map[string]interface{})
 		json.NewDecoder(rep.Body).Decode(&out)
 

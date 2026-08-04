@@ -28,10 +28,10 @@ const (
 
 	// Backoff settings for synchronization requests to Quarterdeck.
 	BackoffTimeout             = 5 * time.Minute
-	BackoffInitialInterval     = 1 * time.Second
+	BackoffInitialInterval     = 5 * time.Second
 	BackoffRandomizationFactor = 0.25
 	BackoffMultiplier          = 2.0
-	BackoffMaxInterval         = 30 * time.Second
+	BackoffMaxInterval         = 60 * time.Second
 
 	// Default interval for synchronization of JWKS and OpenID configuration if not
 	// specified by the Expires header.
@@ -282,6 +282,8 @@ func (s *Quarterdeck) Sync() (err error) {
 	return nil
 }
 
+// Performs the actual synchronization with Quarterdeck; expected to be run via
+// [backoff.Retry] in [Quarterdeck.Sync].
 func (s *Quarterdeck) sync() (_ bool, err error) {
 	s.Lock()
 	defer s.Unlock()
@@ -296,9 +298,16 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 	if expires, ok := s.expires[s.configURL]; !ok || now.After(expires) {
 		var config *OpenIDConfiguration
 		if config, err = s.Config(ctx); err != nil {
-			if !errors.Is(err, auth.ErrNotModified) {
-				// If the error is not a 304 Not Modified, return it
-				return updated, fmt.Errorf("could not fetch OpenID configuration: %w", err)
+			e := fmt.Errorf("could not fetch OpenID configuration: %w", err)
+			switch {
+			case errors.Is(err, auth.ErrNotModified):
+				// Ignore 304 Not Modified errors
+			case errors.Is(err, auth.ErrRateLimited):
+				// Do not retry if we get rate limited, just try again in [SyncInterval]
+				return updated, backoff.NoRetry(e)
+			default:
+				// We can retry for any other errors
+				return updated, e
 			}
 		}
 
@@ -333,9 +342,15 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 	if expires, ok := s.expires[s.jwksURL]; !ok || now.After(expires) {
 		var keys *jose.JSONWebKeySet
 		if keys, err = s.JWKS(ctx); err != nil {
-			if !errors.Is(err, auth.ErrNotModified) {
-				// If the error is not a 304 Not Modified, return it
-				return updated, fmt.Errorf("could not fetch JWKS: %w", err)
+			e := fmt.Errorf("could not fetch JWKS: %w", err)
+			switch {
+			case errors.Is(err, auth.ErrNotModified):
+				// Ignore 304 Not Modified errors
+			case errors.Is(err, auth.ErrRateLimited):
+				// Do not retry if we get rate limited, just try again in [SyncInterval]
+				return updated, backoff.NoRetry(e)
+			default:
+				return updated, e
 			}
 		}
 
