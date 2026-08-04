@@ -29,7 +29,7 @@ const (
 	// Backoff settings for synchronization requests to Quarterdeck.
 	BackoffTimeout             = 5 * time.Minute
 	BackoffInitialInterval     = 5 * time.Second
-	BackoffRandomizationFactor = 0.25
+	BackoffRandomizationFactor = 0.07
 	BackoffMultiplier          = 2.0
 	BackoffMaxInterval         = 60 * time.Second
 
