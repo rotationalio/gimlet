@@ -3,6 +3,7 @@ package quarterdeck_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -68,4 +69,27 @@ func TestQuarterdeck(t *testing.T) {
 	// Should manage 304 not modified responses
 	err = qd.Sync()
 	require.NoError(t, err, "could not synchronize Quarterdeck")
+}
+
+// Ensure that rate limited responses are handled correctly: instead of hammering
+// Quarterdeck, 429 responses should circuit-break.
+func TestQuarterdeckSyncRateLimited(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(server.Close)
+
+	qd, err := quarterdeck.New(
+		server.URL,
+		authtest.Audience,
+		quarterdeck.NoSync(),
+		quarterdeck.NoRun(),
+	)
+	require.NoError(t, err)
+
+	err = qd.Sync()
+	require.ErrorIs(t, err, auth.ErrRateLimited, "expected rate-limit error, got %v", err)
+	require.Equal(t, int32(1), requests.Load(), "429 response should not be retried")
 }

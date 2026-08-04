@@ -49,6 +49,7 @@ func WithReauthURL(reauthURL url.URL) Option {
 	}
 }
 
+// Disable running sync once during initialization.
 func NoSync() Option {
 	return func(q *Quarterdeck) error {
 		q.syncInit = false
@@ -56,6 +57,8 @@ func NoSync() Option {
 	}
 }
 
+// Disable running the sync loop upon initialization. User must call Sync and/or
+// Run manually.
 func NoRun() Option {
 	return func(q *Quarterdeck) error {
 		q.runInit = false

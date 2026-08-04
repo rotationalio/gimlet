@@ -240,11 +240,19 @@ func (s *Quarterdeck) NotAuthorized(c *gin.Context) error {
 	return nil
 }
 
+// Runs the sync loop, synchronizing the JWKS and OpenID configuration from Quarterdeck,
+// and scheduling the next synchronization. Running this more than one time will
+// run more than one synchronization loop.
 func (s *Quarterdeck) Run() {
 	// Get the expiration time for the JWKS
 	wait := SyncInterval
 	if expires, ok := s.Expires(s.jwksURL); ok {
 		wait = time.Until(expires)
+		rlog.DebugAttrs(context.Background(), "jwks will expire sooner than sync interval",
+			slog.Time("expires", expires),
+			slog.Duration("wait", wait),
+			slog.Duration("syncInterval", SyncInterval),
+		)
 	}
 
 	// Synchronize then schedule the next synchronization
