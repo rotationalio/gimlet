@@ -11,4 +11,5 @@ var (
 	ErrUnknownSigningKey = errors.New("unknown signing key")
 	ErrNoKeyID           = errors.New("token does not have kid in header")
 	ErrInvalidKeyID      = errors.New("invalid key id")
+	ErrRateLimited       = errors.New("rate limited due to too many requests")
 )
