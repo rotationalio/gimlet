@@ -306,16 +306,15 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 	if expires, ok := s.expires[s.configURL]; !ok || now.After(expires) {
 		var config *OpenIDConfiguration
 		if config, err = s.Config(ctx); err != nil {
-			e := fmt.Errorf("could not fetch OpenID configuration: %w", err)
 			switch {
 			case errors.Is(err, auth.ErrNotModified):
 				// Ignore 304 Not Modified errors
 			case errors.Is(err, auth.ErrRateLimited):
 				// Do not retry if we get rate limited, just try again in [SyncInterval]
-				return updated, backoff.NoRetry(e)
+				return updated, backoff.NoRetry(err)
 			default:
 				// We can retry for any other errors
-				return updated, e
+				return updated, fmt.Errorf("could not fetch OpenID configuration: %w", err)
 			}
 		}
 
@@ -350,15 +349,14 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 	if expires, ok := s.expires[s.jwksURL]; !ok || now.After(expires) {
 		var keys *jose.JSONWebKeySet
 		if keys, err = s.JWKS(ctx); err != nil {
-			e := fmt.Errorf("could not fetch JWKS: %w", err)
 			switch {
 			case errors.Is(err, auth.ErrNotModified):
 				// Ignore 304 Not Modified errors
 			case errors.Is(err, auth.ErrRateLimited):
 				// Do not retry if we get rate limited, just try again in [SyncInterval]
-				return updated, backoff.NoRetry(e)
+				return updated, backoff.NoRetry(err)
 			default:
-				return updated, e
+				return updated, fmt.Errorf("could not fetch JWKS: %w", err)
 			}
 		}
 
