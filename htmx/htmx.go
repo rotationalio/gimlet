@@ -50,14 +50,15 @@ func IsHTMXRequest(c *gin.Context) bool {
 // Redirect determines if the request is an HTMX request, if so, it sets the HX-Redirect
 // header and returns a 204 no content to allow HTMX to handle the redirect. Otherwise
 // it sets the code and issues a normal gin redirect with the location in the headers.
-func Redirect(c *gin.Context, code int, location string) {
+func Redirect(c *gin.Context, code int, location string) bool {
 	if IsHTMXRequest(c) {
 		c.Header(HXRedirect, location)
 		c.JSON(http.StatusNoContent, nil)
-		return
+		return true
 	}
 
 	c.Redirect(code, location)
+	return false
 }
 
 // Trigger sets the HX-Trigger response header and returns a 204 no content to allow
@@ -108,12 +109,9 @@ func SetTriggerHeader(c *gin.Context, event any) {
 }
 
 // Trigger sets the HX-Trigger response header and then performs an HTMX redirect.
-func TriggerRedirect(c *gin.Context, event any, location string) bool {
-	if Trigger(c, event) {
-		Redirect(c, http.StatusSeeOther, location)
-		return true
-	}
-	return false
+func TriggerRedirect(c *gin.Context, event any, location string) {
+	SetTriggerHeader(c, event)
+	Redirect(c, http.StatusSeeOther, location)
 }
 
 // Trigger a create event for an HTMX name.
@@ -121,8 +119,8 @@ func TriggerCreated(c *gin.Context, htmxName string) bool {
 	return Trigger(c, &Event{Name: htmxName, Type: EventCreated})
 }
 
-func TriggerCreatedRedirect(c *gin.Context, htmxName string, location string) bool {
-	return TriggerRedirect(c, &Event{Name: htmxName, Type: EventCreated}, location)
+func TriggerCreatedRedirect(c *gin.Context, htmxName string, location string) {
+	TriggerRedirect(c, &Event{Name: htmxName, Type: EventCreated}, location)
 }
 
 // Trigger an update event for a model.
@@ -130,8 +128,8 @@ func TriggerUpdated(c *gin.Context, htmxName string) bool {
 	return Trigger(c, &Event{Name: htmxName, Type: EventUpdated})
 }
 
-func TriggerUpdatedRedirect(c *gin.Context, htmxName string, location string) bool {
-	return TriggerRedirect(c, &Event{Name: htmxName, Type: EventUpdated}, location)
+func TriggerUpdatedRedirect(c *gin.Context, htmxName string, location string) {
+	TriggerRedirect(c, &Event{Name: htmxName, Type: EventUpdated}, location)
 }
 
 // Trigger a delete event for a model.
@@ -139,6 +137,6 @@ func TriggerDeleted(c *gin.Context, name string) bool {
 	return Trigger(c, &Event{Name: name, Type: EventDeleted})
 }
 
-func TriggerDeletedRedirect(c *gin.Context, htmxName string, location string) bool {
-	return TriggerRedirect(c, &Event{Name: htmxName, Type: EventDeleted}, location)
+func TriggerDeletedRedirect(c *gin.Context, htmxName string, location string) {
+	TriggerRedirect(c, &Event{Name: htmxName, Type: EventDeleted}, location)
 }

@@ -411,6 +411,66 @@ config := &secure.Config{
 router.Use(secure.Secure(config))
 ```
 
+## HTMX
+
+The `htmx` package provides helpers for services that render server-side HTML for [HTMX](https://htmx.org/) front-ends. It defines constants for all of the HTMX [request](https://htmx.org/reference/#request_headers) and [response](https://htmx.org/reference/#response_headers) headers, a middleware to restrict routes to HTMX requests, and helpers for redirects and client-side events.
+
+### HTMX Only Routes
+
+Some endpoints return HTML partials that are only meaningful to the user interface and should not be part of your public API. Use the `htmx.Only` middleware to reject requests that do not have the `HX-Request` header with a 406 Not Acceptable error:
+
+```go
+ui := router.Group("/ui", htmx.Only)
+{
+    ui.GET("/tasks", ListTasksPartial)
+}
+```
+
+Endpoints that use this middleware should not be documented in your API documentation. If you only need to branch on the request type rather than reject it, use `htmx.IsHTMXRequest(c)` which returns true when the `HX-Request` header is set.
+
+### Redirects
+
+HTMX swaps the response into the DOM, so a normal 302 redirect is followed by the AJAX request rather than the browser. The `htmx.Redirect` helper sets the `HX-Redirect` header and returns a 204 No Content for HTMX requests so that the client performs the redirect; for all other requests it falls back to a standard `c.Redirect` with the given status code.
+
+```go
+func CreateTask(c *gin.Context) {
+    // ... create the task ...
+    htmx.Redirect(c, http.StatusFound, "/tasks")
+}
+```
+
+### Client-Side Events
+
+`htmx.Trigger` sets the `HX-Trigger` response header and returns a 204 No Content so the front-end can listen for the event with `hx-trigger`. It returns false and does nothing if the request is not an HTMX request. The event may be a string, an `error`, or any `fmt.Stringer`:
+
+```go
+func DeleteTask(c *gin.Context) {
+    // ... delete the task ...
+    htmx.Trigger(c, "task-deleted")
+}
+```
+
+If you need to notify listeners *and* return content for HTMX to swap, use `htmx.SetTriggerHeader`, which sets the header without writing a response:
+
+```go
+func UpdateTask(c *gin.Context) {
+    // ... update the task ...
+    htmx.SetTriggerHeader(c, "task-updated")
+    c.HTML(http.StatusOK, "task.html", task)
+}
+```
+
+The `htmx.Event` type provides a consistent naming convention for CRUD events; it renders as a lowercased `name-type` string such as `task-created`. The `EventCreated`, `EventUpdated`, and `EventDeleted` types have convenience helpers so you rarely need to construct an event directly:
+
+```go
+htmx.TriggerCreated(c, "task")                     // sends HX-Trigger: task-created
+htmx.TriggerUpdated(c, "task")                     // sends HX-Trigger: task-updated
+htmx.TriggerDeleted(c, "task")                     // sends HX-Trigger: task-deleted
+htmx.TriggerCreatedRedirect(c, "task", "/tasks")   // trigger, then redirect
+```
+
+Each of these returns a boolean indicating whether the request was an HTMX request and the trigger was sent; use `htmx.TriggerRedirect` to trigger a custom event and redirect in one step.
+
 ## About
 
 Rotational's web services built in Go use common middleware for logging, authentication, authorization, csrf protection and more. This package unifies our middleware usage across all of our web services, simplifying service development. Rotational services primarily depend on Gin as the base framework, hence gimlet - lime and gin!
