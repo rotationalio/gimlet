@@ -32,8 +32,9 @@ var (
 )
 
 // DoubleCookie is a Cross-Site Request Forgery (CSR/XSRF) protection middleware that
-// checks the presence of an X-CSRF-TOKEN header containing a cryptographically signed
-// token that matches a token contained in the CSRF-TOKEN cookie in the request.
+// checks the presence of the configured CSRF header containing a
+// cryptographically signed token that matches a token contained in the configured
+// reference cookie in the request.
 // Because of the same-origin policy, an attacker cannot access the cookies or scripts
 // of the safe site, therefore the X-CSRF-TOKEN header cannot be forged, and if it is
 // omitted because it is being re-posted by an attacker site then the request will be
@@ -41,14 +42,29 @@ var (
 //
 // See: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#alternative-using-a-double-submit-cookie-pattern
 func DoubleCookie(verifier TokenVerifier) gin.HandlerFunc {
+	if namer, ok := verifier.(Namespacer); ok {
+		return doubleCookie(verifier, namer.Namespace())
+	}
+	return doubleCookie(verifier, defaultNamespace)
+}
+
+func doubleCookie(verifier TokenVerifier, names Namespace) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cookie, err := c.Cookie(ReferenceCookie)
+		// Do not verify CSRF token for GET, HEAD, and OPTIONS requests.
+		if c.Request.Method == http.MethodGet ||
+			c.Request.Method == http.MethodHead ||
+			c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+
+		cookie, err := c.Cookie(names.ReferenceCookie)
 		if err != nil {
 			gimlet.Abort(c, http.StatusForbidden, ErrNoCSRFReferenceCookie)
 			return
 		}
 
-		header := c.GetHeader(Header)
+		header := c.GetHeader(names.Header)
 		if header, err = url.QueryUnescape(header); err != nil {
 			c.Error(err)
 			gimlet.Abort(c, http.StatusBadRequest, ErrInvalidCSRFHeader)
@@ -84,6 +100,10 @@ func DoubleCookie(verifier TokenVerifier) gin.HandlerFunc {
 // one for the reference that is httpOnly and secure, and another for the front-end to
 // collect and add to the request header.
 func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path string, domains []string, expires time.Time) (err error) {
+	return setDoubleCookieToken(c, generator, path, domains, expires, defaultNamespace)
+}
+
+func setDoubleCookieToken(c *gin.Context, generator TokenGenerator, path string, domains []string, expires time.Time, names Namespace) (err error) {
 	// Generate a secure token
 	var token string
 	if token, err = generator.GenerateCSRFToken(); err != nil {
@@ -111,22 +131,22 @@ func SetDoubleCookieToken(c *gin.Context, generator TokenGenerator, path string,
 	// Set the CSRF cookie for each domain specified.
 	for _, domain := range domains {
 		secure := !gimlet.IsLocalhost(domain)
-		c.SetCookie(Cookie, token, maxAge, path, domain, secure, false)
+		c.SetCookie(names.Cookie, token, maxAge, path, domain, secure, false)
 	}
 
 	// Set the CSRF reference cookie only for the root domain(s) since cookies will
 	// respect subdomains and duplicating the httpOnly reference cookie is not needed.
 	for _, domain := range gimlet.RootDomains(domains) {
 		secure := !gimlet.IsLocalhost(domain)
-		c.SetCookie(ReferenceCookie, token, maxAge, path, domain, secure, true)
+		c.SetCookie(names.ReferenceCookie, token, maxAge, path, domain, secure, true)
 	}
 
 	return nil
 }
 
 // TokenVerifier is an interface that is used for DoubleCookie session verification.
-// The middleware will call the VerifyCSRFToken method with the value of the CSRF
-// reference cookie and the value of the X-CSRF-Token header. If the verification
+// The middleware will call the VerifyCSRFToken method with the value of the configured
+// CSRF reference cookie and the value of the configured CSRF header. If the verification
 // returns false, the request will be aborted with a 403 error; if an error is returned
 // the request will be aborted and the error will be logged. The middleware will only
 // succeed if VerifyCSRFToken returns true and no error.
