@@ -48,6 +48,37 @@ func TestNamespacedNamespaceNormalization(t *testing.T) {
 	require.Contains(t, names, "endeavor_service__csrf_reference_token")
 }
 
+// Verify that the secure constructor always creates a signed handler and
+// rejects missing or insufficient secrets.
+func TestNewSecureTokenHandler(t *testing.T) {
+	handler, err := csrf.NewSecureTokenHandler(make([]byte, 32), "endeavor")
+	require.NoError(t, err)
+	_, ok := handler.(*csrf.SignedCSRFTokens)
+	require.True(t, ok)
+
+	names := handler.(csrf.Namespacer).Namespace()
+	require.Equal(t, "__Host-endeavor_csrf_token", names.Cookie)
+	require.Equal(t, "__Host-endeavor_csrf_reference_token", names.ReferenceCookie)
+	require.Equal(t, "X-Endeavor-CSRF-Token", names.Header)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+	require.NoError(t, handler.SetDoubleCookieToken(c))
+	require.ElementsMatch(t,
+		[]string{"__Host-endeavor_csrf_token", "__Host-endeavor_csrf_reference_token"},
+		cookieNames(w.Result().Cookies()),
+	)
+
+	handler, err = csrf.NewSecureTokenHandler([]byte("short"), "")
+	require.ErrorIs(t, err, csrf.ErrShortSignedCSRFSecret)
+	require.Nil(t, handler)
+
+	handler, err = csrf.NewSecureTokenHandler(nil, "")
+	require.ErrorIs(t, err, csrf.ErrNoSignedCSRFSecret)
+	require.Nil(t, handler)
+}
+
 // Verify that independent handlers can share a host without overwriting each
 // other's CSRF cookies or preventing valid requests.
 func TestNamespacedCookiesDoNotCollide(t *testing.T) {

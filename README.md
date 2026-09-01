@@ -328,6 +328,12 @@ router.POST("/myform", csrf.DoubleCookie(handler), postForm)
 
 The example namespace produces `application_csrf_token`, `application_csrf_reference_token`, and `X-Application-CSRF-Token`. Namespaces are trimmed, lowercased, and converted to safe cookie/header-name characters. An empty namespace preserves the legacy names. `NewTokenHandler` and existing `TokenVerifier`/`TokenHandler` implementations remain compatible; use `DoubleCookieWithNamespace` and `SetDoubleCookieTokenWithNamespace` when configuring a custom implementation.
 
+To require signed tokens and use host-only `__Host-` CSRF cookies, use `NewSecureTokenHandler`. It requires a secret of at least 32 bytes:
+
+```go
+handler, err := csrf.NewSecureTokenHandler(secret, "application")
+```
+
 There are two types of token handlers:
 
 1. `csrf.NaiveCSRFTokens`: generates cryptographically random strings

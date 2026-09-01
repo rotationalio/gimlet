@@ -25,6 +25,32 @@ type Namespacer interface {
 	Namespace() Namespace
 }
 
+// Returns a host-only namespace (prefix "__Host-") from the given namespace.
+func hostNamespace(namespace Namespace) Namespace {
+	namespace.Cookie = "__Host-" + namespace.Cookie
+	namespace.ReferenceCookie = "__Host-" + namespace.ReferenceCookie
+	return namespace
+}
+
+// NewSecureTokenHandler returns a signed CSRF token handler using the default
+// cookie TTL, root path, and host-only cookies. The secret must be at least 32
+// bytes long; unlike NewTokenHandler, it does not allow a naive token handler.
+func NewSecureTokenHandler(secret []byte, namespace string) (TokenHandler, error) {
+	if len(secret) == 0 {
+		return nil, ErrNoSignedCSRFSecret
+	}
+
+	handler := &SignedCSRFTokens{
+		CookieTTL:  CookieTTL,
+		CookiePath: "/",
+		namespace:  hostNamespace(namesForNamespace(namespace)),
+	}
+	if err := handler.SetSecret(secret); err != nil {
+		return nil, err
+	}
+	return handler, nil
+}
+
 // Returns a CSRF token handler configured to use namespaced cookie and header
 // names. The legacy NewTokenHandler constructor remains unchanged and uses the
 // legacy names.
