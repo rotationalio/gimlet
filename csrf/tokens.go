@@ -18,14 +18,20 @@ import (
 // If the secret is specified (not nil) then a signed CSRF token handler is returned,
 // otherwise a naive CSRF token handler is returned.
 func NewTokenHandler(cookieTTL time.Duration, path string, domains []string, secret []byte) (TokenHandler, error) {
-	// Deduplicate and normalize domains
+	return newTokenHandler(cookieTTL, path, domains, secret, "")
+}
+
+func newTokenHandler(cookieTTL time.Duration, path string, domains []string, secret []byte, namespace string) (TokenHandler, error) {
+	// Deduplicate and normalize domains.
 	domains = gimlet.CookieDomains(domains...)
+	names := namesForNamespace(namespace)
 
 	if secret != nil {
 		handler := &SignedCSRFTokens{
 			CookieTTL:    cookieTTL,
 			CookiePath:   path,
 			CookieDomain: domains,
+			namespace:    names,
 		}
 		if err := handler.SetSecret(secret); err != nil {
 			return nil, err
@@ -37,6 +43,7 @@ func NewTokenHandler(cookieTTL time.Duration, path string, domains []string, sec
 		CookieTTL:    cookieTTL,
 		CookiePath:   path,
 		CookieDomain: domains,
+		namespace:    names,
 	}, nil
 }
 
@@ -64,8 +71,18 @@ type SignedCSRFTokens struct {
 	// is valid for the current domain).
 	CookieDomain []string
 
+	// namespace contains the configured CSRF cookie and header names.
+	namespace Namespace
+
 	// Secret key used to sign the CSRF tokens.
 	secret []byte
+}
+
+func (s *SignedCSRFTokens) Namespace() Namespace {
+	if s.namespace == (Namespace{}) {
+		return defaultNamespace
+	}
+	return s.namespace
 }
 
 // SetSecret sets the secret key used to sign the CSRF tokens. If the secret is nil or
@@ -190,7 +207,7 @@ func (s *SignedCSRFTokens) SetDoubleCookieToken(c *gin.Context) error {
 		expires = time.Now().Add(s.CookieTTL)
 	}
 
-	if err := SetDoubleCookieToken(c, s, s.CookiePath, s.CookieDomain, expires); err != nil {
+	if err := setDoubleCookieToken(c, s, s.CookiePath, s.CookieDomain, expires, s.Namespace()); err != nil {
 		return err
 	}
 	return nil
@@ -217,8 +234,18 @@ type NaiveCSRFTokens struct {
 	// is valid for the current domain).
 	CookieDomain []string
 
+	// namespace contains the configured CSRF cookie and header names.
+	namespace Namespace
+
 	seed     []byte
 	initSeed sync.Once
+}
+
+func (n *NaiveCSRFTokens) Namespace() Namespace {
+	if n.namespace == (Namespace{}) {
+		return defaultNamespace
+	}
+	return n.namespace
 }
 
 // Randomly generates a CSRF session token using crypto/rand and returns it as a
@@ -265,7 +292,7 @@ func (n *NaiveCSRFTokens) SetDoubleCookieToken(c *gin.Context) error {
 		expires = time.Now().Add(n.CookieTTL)
 	}
 
-	if err := SetDoubleCookieToken(c, n, n.CookiePath, n.CookieDomain, expires); err != nil {
+	if err := setDoubleCookieToken(c, n, n.CookiePath, n.CookieDomain, expires, n.Namespace()); err != nil {
 		return err
 	}
 	return nil

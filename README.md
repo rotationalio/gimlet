@@ -319,6 +319,21 @@ An endpoint that is protected by this middleware requires a request that has:
 
 The idea is that you use an endpoint (such as login or a GET request to a form) to set two cookies using a `csrf.TokenHandler` to generate and set the cookies. The cookies are a `csrf_token` that can be read by Javascript on the front-end and a `csrf_reference_token` that is http only (e.g. cannot be read by Javascript). The front-end must take the `csrf_token` value and add it to the request in the `X-CSRF-Token` header for the request to the protected endpoint to succeed.
 
+If multiple services share a host, configure a namespace to keep their CSRF cookies separate:
+
+```go
+handler, err := csrf.NewTokenHandlerWithNamespace(time.Hour, "/", []string{"localhost"}, secret, "application")
+router.POST("/myform", csrf.DoubleCookie(handler), postForm)
+```
+
+The example namespace produces `application_csrf_token`, `application_csrf_reference_token`, and `X-Application-CSRF-Token`. Namespaces are trimmed, lowercased, and converted to safe cookie/header-name characters. An empty namespace preserves the legacy names. `NewTokenHandler` and existing `TokenVerifier`/`TokenHandler` implementations remain compatible; use `DoubleCookieWithNamespace` and `SetDoubleCookieTokenWithNamespace` when configuring a custom implementation.
+
+To require signed tokens and use host-only `__Host-` CSRF cookies, use `NewSecureTokenHandler`. It requires a secret of at least 32 bytes:
+
+```go
+handler, err := csrf.NewSecureTokenHandler(secret, "application")
+```
+
 There are two types of token handlers:
 
 1. `csrf.NaiveCSRFTokens`: generates cryptographically random strings
@@ -450,7 +465,7 @@ func DeleteTask(c *gin.Context) {
 }
 ```
 
-If you need to notify listeners *and* return content for HTMX to swap, use `htmx.SetTriggerHeader`, which sets the header without writing a response:
+If you need to notify listeners _and_ return content for HTMX to swap, use `htmx.SetTriggerHeader`, which sets the header without writing a response:
 
 ```go
 func UpdateTask(c *gin.Context) {
