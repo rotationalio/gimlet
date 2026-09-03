@@ -35,6 +35,9 @@ func TestAuthenticate(t *testing.T) {
 		authenticate(c)
 		require.Equal(t, http.StatusUnauthorized, w.Code, "should return 401 Unauthorized when no access token is provided")
 		mock.AssertNotCalled(t, "Verify")
+		source, err := auth.GetAuthenticationSource(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthenticationSource)
+		require.Equal(t, auth.AuthenticationSourceUnknown, source)
 	})
 
 	t.Run("InvalidAccessToken", func(t *testing.T) {
@@ -59,6 +62,9 @@ func TestAuthenticate(t *testing.T) {
 		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
 		require.False(t, exists, "should not set access token in context when access token is invalid")
 		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
+		source, err := auth.GetAuthenticationSource(c)
+		require.ErrorIs(t, err, auth.ErrNoAuthenticationSource)
+		require.Equal(t, auth.AuthenticationSourceUnknown, source)
 	})
 
 	t.Run("ValidAccessToken", func(t *testing.T) {
@@ -83,6 +89,47 @@ func TestAuthenticate(t *testing.T) {
 		accessToken, exists := gimlet.Get(c, gimlet.KeyAccessToken)
 		require.True(t, exists, "should set access token in context")
 		require.Equal(t, "guywhoworkshere", accessToken, "should match access token from header")
+		source, err := auth.GetAuthenticationSource(c)
+		require.NoError(t, err, "should retrieve authentication source")
+		require.Equal(t, auth.AuthenticationSourceBearer, source)
+	})
+
+	t.Run("ValidCookie", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return &auth.Claims{Name: "testuser"}, nil
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.AddCookie(&http.Cookie{Name: auth.AccessTokenCookie, Value: "cookie-token"})
+
+		authenticate(c)
+		require.Equal(t, http.StatusOK, w.Code)
+		source, err := auth.GetAuthenticationSource(c)
+		require.NoError(t, err)
+		require.Equal(t, auth.AuthenticationSourceCookie, source)
+	})
+
+	t.Run("BearerTakesPrecedenceOverCookie", func(t *testing.T) {
+		defer mock.Reset()
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			require.Equal(t, "bearer-token", accessToken)
+			return &auth.Claims{Name: "testuser"}, nil
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Authorization", "Bearer bearer-token")
+		c.Request.AddCookie(&http.Cookie{Name: auth.AccessTokenCookie, Value: "cookie-token"})
+
+		authenticate(c)
+		require.Equal(t, http.StatusOK, w.Code)
+		source, err := auth.GetAuthenticationSource(c)
+		require.NoError(t, err)
+		require.Equal(t, auth.AuthenticationSourceBearer, source)
 	})
 }
 
@@ -314,6 +361,9 @@ func TestAuthenticateWithReauthenticator(t *testing.T) {
 				refreshToken, exists := gimlet.Get(c, gimlet.KeyRefreshToken)
 				require.True(t, exists, "should set refresh token in context")
 				require.Equal(t, "new-refresh-token", refreshToken, "refresh token should be refreshed")
+				source, err := auth.GetAuthenticationSource(c)
+				require.NoError(t, err, "should retrieve authentication source")
+				require.Equal(t, auth.AuthenticationSourceCookie, source)
 			})
 
 			t.Run("Error", func(t *testing.T) {

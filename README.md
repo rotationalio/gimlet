@@ -195,6 +195,26 @@ func MyRoute(c *gin.Context) {
 }
 ```
 
+The authentication source can be retrieved from downstream middleware or
+handlers with `auth.GetAuthenticationSource(c)`:
+
+```go
+source, err := auth.GetAuthenticationSource(c)
+switch source {
+case auth.AuthenticationSourceBearer:
+	// The request was authenticated with a bearer token.
+case auth.AuthenticationSourceCookie:
+	// The request was authenticated with cookies.
+case auth.AuthenticationSourceUnknown:
+	// The request was not authenticated yet or it failed.
+	// In this case, the returned error should not be nil.
+}
+```
+
+Bearer authentication takes precedence when both credentials are present.
+Requests authenticated after an expired access token is refreshed with cookies
+are reported as cookie authentication.
+
 ### Authorization
 
 Authorization checks to make sure the claims have all permissions specified when setting up the middleware. For example, a rest endpoint might be set up as follows:
@@ -316,6 +336,8 @@ An endpoint that is protected by this middleware requires a request that has:
 
 1. An HTTP CSRF reference cookie set by the server that is httpOnly
 2. An X-CSRF-Token header with a token that matches the above cookie value.
+
+When CSRF verification fails, the middleware sets the `ErrorHeader` from its `csrf.Namespace` to `csrf_token_invalid`. The default header is `X-CSRF-Error`; a namespaced handler uses a corresponding header such as `X-Endeavor-CSRF-Error`. Existing response status codes and bodies are unchanged.
 
 The idea is that you use an endpoint (such as login or a GET request to a form) to set two cookies using a `csrf.TokenHandler` to generate and set the cookies. The cookies are a `csrf_token` that can be read by Javascript on the front-end and a `csrf_reference_token` that is http only (e.g. cannot be read by Javascript). The front-end must take the `csrf_token` value and add it to the request in the `X-CSRF-Token` header for the request to the protected endpoint to succeed.
 

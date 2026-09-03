@@ -12,12 +12,14 @@ type Namespace struct {
 	Cookie          string
 	ReferenceCookie string
 	Header          string
+	ErrorHeader     string
 }
 
 var defaultNamespace = Namespace{
 	Cookie:          Cookie,
 	ReferenceCookie: ReferenceCookie,
 	Header:          Header,
+	ErrorHeader:     ErrorHeader,
 }
 
 // An interface for types that can derive CSRF names from a namespace.
@@ -82,6 +84,7 @@ func namesForNamespace(namespace string) Namespace {
 		Cookie:          namespace + "_" + Cookie,
 		ReferenceCookie: namespace + "_" + ReferenceCookie,
 		Header:          "X-" + strings.ToUpper(namespace[:1]) + namespace[1:] + "-CSRF-Token",
+		ErrorHeader:     "X-" + strings.ToUpper(namespace[:1]) + namespace[1:] + "-CSRF-Error",
 	}
 }
 

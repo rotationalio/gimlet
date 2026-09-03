@@ -60,6 +60,7 @@ func TestNewSecureTokenHandler(t *testing.T) {
 	require.Equal(t, "__Host-endeavor_csrf_token", names.Cookie)
 	require.Equal(t, "__Host-endeavor_csrf_reference_token", names.ReferenceCookie)
 	require.Equal(t, "X-Endeavor-CSRF-Token", names.Header)
+	require.Equal(t, "X-Endeavor-CSRF-Error", names.ErrorHeader)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

@@ -61,8 +61,11 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 		log := logger.Tracing(c)
 
 		// Get the access token from the request, either from the header or cookies.
-		var accessToken string
-		if accessToken, err = GetAccessToken(c); err != nil {
+		var (
+			accessToken string
+			source      AuthenticationSource
+		)
+		if accessToken, source, err = GetAccessTokenAndSource(c); err != nil {
 			// NOTE: do not attempt to reauthenticate if the access token is not present.
 			// This is because the refresh token is set and collected in a cookie
 			// that can be accessed by JavaScript, so that it can be used to
@@ -90,6 +93,10 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 						// Re-authentication successful!
 						gimlet.Set(c, gimlet.KeyAccessToken, refreshed.AccessToken)
 						gimlet.Set(c, gimlet.KeyRefreshToken, refreshed.RefreshToken)
+						// Although the expired credential may have been supplied as a
+						// bearer token, the refresh cookie ultimately authenticated
+						// this request.
+						gimlet.SetBoth(c, gimlet.KeyAuthenticationSource, AuthenticationSourceCookie)
 
 						// If there are any cookies to be set on the response, set them now.
 						for _, cookie := range refreshed.Cookies {
@@ -108,6 +115,7 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 
 		// Authentication successful!
 		gimlet.Set(c, gimlet.KeyAccessToken, accessToken)
+		gimlet.SetBoth(c, gimlet.KeyAuthenticationSource, source)
 		return claims, nil
 	}
 
@@ -167,22 +175,28 @@ var (
 //
 // NOTE: the authorization header takes precedence over access tokens in cookies.
 func GetAccessToken(c *gin.Context) (tks string, err error) {
+	tks, _, err = GetAccessTokenAndSource(c)
+	return tks, err
+}
+
+// Like [GetAccessToken], but also returns the authentication source.
+func GetAccessTokenAndSource(c *gin.Context) (tks string, source AuthenticationSource, err error) {
 	// Attempt to get the access token from the header.
 	if header := c.GetHeader(authorization); header != "" {
 		match := bearer.FindStringSubmatch(header)
 		if len(match) == 2 {
-			return match[1], nil
+			return match[1], AuthenticationSourceBearer, nil
 		}
-		return "", ErrParseBearer
+		return "", AuthenticationSourceUnknown, ErrParseBearer
 	}
 
 	// Attempt to get the access token from cookies.
 	var cookie string
 	if cookie, err = c.Cookie(AccessTokenCookie); err == nil {
 		// If the error is nil, that means we were able to retrieve the access token cookie
-		return cookie, nil
+		return cookie, AuthenticationSourceCookie, nil
 	}
-	return "", ErrNoAuthorization
+	return "", AuthenticationSourceUnknown, ErrNoAuthorization
 }
 
 // GetRefreshToken retrieves the refresh token from the cookies in the request. If the

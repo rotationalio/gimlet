@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,12 +40,7 @@ func (c Claims) SubjectType() SubjectType {
 }
 
 func (c Claims) HasPermission(required string) bool {
-	for _, permission := range c.Permissions {
-		if permission == required {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Permissions, required)
 }
 
 func (c Claims) HasAllPermissions(required ...string) bool {
