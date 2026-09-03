@@ -147,7 +147,7 @@ func TestSignedCSRFTokens(t *testing.T) {
 	t.Run("Generate", func(t *testing.T) {
 		// Should create unique tokens each time
 		seen := make(map[string]struct{})
-		for i := 0; i < 65; i++ {
+		for range 65 {
 			token, err := handler.GenerateCSRFToken()
 			require.NoError(t, err)
 			require.Regexp(t, `^[a-zA-Z0-9_-]{86}==$`, token)
@@ -223,7 +223,7 @@ func TestNaiveCSRFTokens(t *testing.T) {
 	t.Run("Generate", func(t *testing.T) {
 		// Should create unique tokens each time
 		seen := make(map[string]struct{})
-		for i := 0; i < 65; i++ {
+		for range 65 {
 			token, err := handler.GenerateCSRFToken()
 			require.NoError(t, err)
 			require.Regexp(t, `^[a-zA-Z0-9_-]{43}=$`, token)

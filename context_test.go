@@ -33,6 +33,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
 			{gimlet.KeyCacheHandler, true},
 			{gimlet.KeyRefreshToken, "bar"},
+			{gimlet.KeyAuthenticationSource, "cookie"},
 		}
 
 		for _, tc := range tests {
@@ -58,6 +59,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
 			{gimlet.KeyCacheHandler, true},
 			{gimlet.KeyRefreshToken, "bar"},
+			{gimlet.KeyAuthenticationSource, "cookie"},
 		}
 
 		for _, tc := range tests {
@@ -85,6 +87,7 @@ func TestContext(t *testing.T) {
 			{gimlet.KeyCacheControl, "public, max-age=3600"},
 			{gimlet.KeyCacheHandler, true},
 			{gimlet.KeyRefreshToken, "bar"},
+			{gimlet.KeyAuthenticationSource, "cookie"},
 		}
 
 		for _, tc := range tests {

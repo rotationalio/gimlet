@@ -14,10 +14,18 @@ import (
 
 // Parameters and headers for double-cookie submit CSRF protection.
 const (
-	Cookie          = "csrf_token"
+	// The default name of the CSRF token cookie.
+	Cookie = "csrf_token"
+	// The default name of the CSRF reference token cookie.
 	ReferenceCookie = "csrf_reference_token"
-	Header          = "X-CSRF-Token"
-	CookieTTL       = 1 * time.Hour
+	// The default name of the CSRF token header.
+	Header = "X-CSRF-Token"
+	// The default cookie TTL for CSRF tokens.
+	CookieTTL = 1 * time.Hour
+	// ErrorHeader is set when CSRF verification rejects a request.
+	ErrorHeader = "X-CSRF-Error"
+	// ErrorTokenInvalid is the stable machine-readable CSRF failure signal.
+	ErrorTokenInvalid = "csrf_token_invalid"
 )
 
 var (
@@ -60,6 +68,7 @@ func doubleCookie(verifier TokenVerifier, names Namespace) gin.HandlerFunc {
 
 		cookie, err := c.Cookie(names.ReferenceCookie)
 		if err != nil {
+			c.Header(names.ErrorHeader, ErrorTokenInvalid)
 			gimlet.Abort(c, http.StatusForbidden, ErrNoCSRFReferenceCookie)
 			return
 		}
@@ -67,6 +76,7 @@ func doubleCookie(verifier TokenVerifier, names Namespace) gin.HandlerFunc {
 		header := c.GetHeader(names.Header)
 		if header, err = url.QueryUnescape(header); err != nil {
 			c.Error(err)
+			c.Header(names.ErrorHeader, ErrorTokenInvalid)
 			gimlet.Abort(c, http.StatusBadRequest, ErrInvalidCSRFHeader)
 			return
 		}
@@ -78,6 +88,7 @@ func doubleCookie(verifier TokenVerifier, names Namespace) gin.HandlerFunc {
 				slog.Bool("header_exists", header != ""),
 				slog.Bool("cookie_exists", cookie != ""),
 			)
+			c.Header(names.ErrorHeader, ErrorTokenInvalid)
 			gimlet.Abort(c, http.StatusForbidden, ErrCSRFVerification)
 			return
 		}
@@ -88,6 +99,7 @@ func doubleCookie(verifier TokenVerifier, names Namespace) gin.HandlerFunc {
 				c.Error(err)
 			}
 
+			c.Header(names.ErrorHeader, ErrorTokenInvalid)
 			gimlet.Abort(c, http.StatusForbidden, ErrCSRFVerification)
 			return
 		}

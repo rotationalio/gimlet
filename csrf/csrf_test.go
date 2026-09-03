@@ -54,6 +54,7 @@ func TestDoubleCookie(t *testing.T) {
 				rep, err := client.Do(req)
 				require.NoError(t, err)
 				AssertErrorReply(t, rep, http.StatusForbidden, ErrNoCSRFReferenceCookie.Error())
+				require.Equal(t, ErrorTokenInvalid, rep.Header.Get(ErrorHeader))
 			})
 
 			// Make a request that is CSRF protected
@@ -108,6 +109,7 @@ func TestDoubleCookie(t *testing.T) {
 				rep, err = client.Do(req)
 				require.NoError(t, err)
 				AssertErrorReply(t, rep, http.StatusForbidden, ErrCSRFVerification.Error())
+				require.Equal(t, ErrorTokenInvalid, rep.Header.Get(ErrorHeader))
 			})
 
 			// Make a request that has the header but not the reference cookie
@@ -143,6 +145,7 @@ func TestDoubleCookie(t *testing.T) {
 				rep, err = client.Do(req)
 				require.NoError(t, err)
 				AssertErrorReply(t, rep, http.StatusForbidden, ErrCSRFVerification.Error())
+				require.Equal(t, ErrorTokenInvalid, rep.Header.Get(ErrorHeader))
 			})
 
 			// Make a request where the header is not URL escaped
@@ -164,6 +167,7 @@ func TestDoubleCookie(t *testing.T) {
 				rep, err = client.Do(req)
 				require.NoError(t, err)
 				AssertErrorReply(t, rep, http.StatusBadRequest, ErrInvalidCSRFHeader.Error())
+				require.Equal(t, ErrorTokenInvalid, rep.Header.Get(ErrorHeader))
 			})
 		}
 	}
