@@ -12,7 +12,7 @@ import (
 // ensure compatibility with third party libraries.
 const (
 	VersionMajor         = 1
-	VersionMinor         = 9
+	VersionMinor         = 10
 	VersionPatch         = 0
 	VersionReleaseLevel  = "final"
 	VersionReleaseNumber = 0
