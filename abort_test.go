@@ -72,7 +72,7 @@ func TestError(t *testing.T) {
 	}{
 		{nil, ""},
 		{errors.New("no csrf reference cookie in request"), "no csrf reference cookie in request"},
-		{&api.StatusError{StatusCode: 400, Reply: api.Reply{Success: false, Error: "test error"}}, "[400] test error"},
+		{&api.StatusError{Code: 400, Err: errors.New("test error")}, "[400] test error"},
 		{"string error", "string error"},
 		{42, "unhandled error response"},
 	}

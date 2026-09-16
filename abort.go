@@ -1,6 +1,10 @@
 package gimlet
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"go.rtnl.ai/x/api"
 )
@@ -14,6 +18,17 @@ func Abort(c *gin.Context, code int, err any) {
 	case gin.MIMEJSON, gin.MIMEHTML:
 		c.AbortWithStatusJSON(code, api.Error(err))
 	default:
-		c.AbortWithError(code, &api.StatusError{StatusCode: code, Reply: api.Error(err)})
+		var e error
+		switch t := err.(type) {
+		case error:
+			e = t
+		case string:
+			e = errors.New(t)
+		case fmt.Stringer:
+			e = errors.New(t.String())
+		default:
+			e = errors.New(http.StatusText(code))
+		}
+		c.AbortWithError(code, e)
 	}
 }
