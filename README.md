@@ -341,7 +341,16 @@ When CSRF verification fails, the middleware sets the `ErrorHeader` from its `cs
 
 The idea is that you use an endpoint (such as login or a GET request to a form) to set two cookies using a `csrf.TokenHandler` to generate and set the cookies. The cookies are a `csrf_token` that can be read by Javascript on the front-end and a `csrf_reference_token` that is http only (e.g. cannot be read by Javascript). The front-end must take the `csrf_token` value and add it to the request in the `X-CSRF-Token` header for the request to the protected endpoint to succeed.
 
-If multiple services share a host, configure a namespace to keep their CSRF cookies separate:
+This package's name is `csrf` so you can use it as such:
+
+```go
+import "go.rtnl.ai/gimlet/csrf/doublecookie"
+
+// Not necessary, but maybe clearer:
+import csrf "go.rtnl.ai/gimlet/csrf/doublecookie"
+```
+
+If multiple services share a host, configure a namespace to keep their CSRF cookies separate (see `):
 
 ```go
 handler, err := csrf.NewTokenHandlerWithNamespace(time.Hour, "/", []string{"localhost"}, secret, "application")

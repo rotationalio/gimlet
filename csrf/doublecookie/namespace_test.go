@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"go.rtnl.ai/gimlet/csrf"
+	csrf "go.rtnl.ai/gimlet/csrf/doublecookie"
 )
 
 // Verify that a namespaced handler issues the expected cookie names and does
