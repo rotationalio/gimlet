@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	csrf "go.rtnl.ai/gimlet/csrf/secfetch"
-	secfetch "go.rtnl.ai/gimlet/csrf/secfetch"
 )
 
 // Verifies missing and unknown site metadata use configured Origin and Referer fallback rules.
@@ -17,19 +16,19 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 	tests := []struct {
 		name    string
 		headers http.Header
-		options []secfetch.Option
+		options []csrf.Option
 		allowed bool
 	}{
 		{
 			name:    "missing-site-with-approved-origin",
 			headers: http.Header{csrf.HeaderOrigin: []string{"https://app.example.com"}},
-			options: []secfetch.Option{secfetch.WithExpectedOrigins(origins)},
+			options: []csrf.Option{csrf.WithExpectedOrigins(origins)},
 			allowed: true,
 		},
 		{
 			name:    "missing-site-with-approved-referer-path-and-query",
 			headers: http.Header{csrf.HeaderReferer: []string{"https://app.example.com/forms/edit?from=mail"}},
-			options: []secfetch.Option{secfetch.WithExpectedOrigins(origins)},
+			options: []csrf.Option{csrf.WithExpectedOrigins(origins)},
 			allowed: true,
 		},
 		{
@@ -40,7 +39,7 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 		{
 			name:    "missing-site-explicitly-allowed",
 			headers: make(http.Header),
-			options: []secfetch.Option{secfetch.WithAllowMissingMetadata(true)},
+			options: []csrf.Option{csrf.WithAllowMissingMetadata(true)},
 			allowed: true,
 		},
 		{
@@ -49,13 +48,13 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 				csrf.HeaderOrigin:  []string{"https://attacker.example"},
 				csrf.HeaderReferer: []string{"https://app.example.com/forms"},
 			},
-			options: []secfetch.Option{secfetch.WithExpectedOrigins(origins)},
+			options: []csrf.Option{csrf.WithExpectedOrigins(origins)},
 			allowed: false,
 		},
 		{
 			name:    "unknown-site-with-approved-origin",
 			headers: http.Header{csrf.HeaderSecFetchSite: []string{"future-value"}, csrf.HeaderOrigin: []string{"https://app.example.com"}},
-			options: []secfetch.Option{secfetch.WithExpectedOrigins(origins)},
+			options: []csrf.Option{csrf.WithExpectedOrigins(origins)},
 			allowed: true,
 		},
 		{
@@ -66,7 +65,7 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 		{
 			name:    "unknown-site-explicitly-allowed",
 			headers: http.Header{csrf.HeaderSecFetchSite: []string{"future-value"}},
-			options: []secfetch.Option{secfetch.WithAllowUnknownSite(true)},
+			options: []csrf.Option{csrf.WithAllowUnknownSite(true)},
 			allowed: true,
 		},
 	}
@@ -78,7 +77,7 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 				return
 			}
-			assertCSRFRejected(t, recorder, secfetch.HeaderError)
+			assertCSRFRejected(t, recorder, csrf.HeaderError)
 		})
 	}
 }
@@ -89,22 +88,22 @@ func TestUntrustedProvenanceCannotBeOverriddenForMissingOrUnknownSite(t *testing
 	tests := []struct {
 		name    string
 		headers http.Header
-		option  secfetch.Option
+		option  csrf.Option
 	}{
 		{
 			name:    "missing site with untrusted origin",
 			headers: http.Header{csrf.HeaderOrigin: []string{"https://attacker.example"}},
-			option:  secfetch.WithAllowMissingMetadata(true),
+			option:  csrf.WithAllowMissingMetadata(true),
 		},
 		{
 			name:    "unknown site with untrusted origin",
 			headers: http.Header{csrf.HeaderSecFetchSite: []string{"future-value"}, csrf.HeaderOrigin: []string{"https://attacker.example"}},
-			option:  secfetch.WithAllowUnknownSite(true),
+			option:  csrf.WithAllowUnknownSite(true),
 		},
 		{
 			name:    "untrusted referer with missing site",
 			headers: http.Header{csrf.HeaderReferer: []string{"https://attacker.example/action"}},
-			option:  secfetch.WithAllowMissingMetadata(true),
+			option:  csrf.WithAllowMissingMetadata(true),
 		},
 	}
 
@@ -112,14 +111,14 @@ func TestUntrustedProvenanceCannotBeOverriddenForMissingOrUnknownSite(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			fallbackCalls := 0
 			recorder := serve(t, http.MethodPost, test.headers,
-				secfetch.WithExpectedOrigins(trustedOrigins),
+				csrf.WithExpectedOrigins(trustedOrigins),
 				test.option,
-				secfetch.WithFallback(func(*gin.Context) bool {
+				csrf.WithFallback(func(*gin.Context) bool {
 					fallbackCalls++
 					return true
 				}),
 			)
-			assertCSRFRejected(t, recorder, secfetch.HeaderError)
+			assertCSRFRejected(t, recorder, csrf.HeaderError)
 			require.Equal(t, 0, fallbackCalls)
 		})
 	}
@@ -171,7 +170,7 @@ func TestExpectedOriginsAreExact(t *testing.T) {
 				csrf.HeaderSecFetchSite: []string{"same-site"},
 				csrf.HeaderOrigin:       []string{test.request},
 			}
-			recorder := serve(t, http.MethodPost, headers, secfetch.WithExpectedOrigins(test.expected))
+			recorder := serve(t, http.MethodPost, headers, csrf.WithExpectedOrigins(test.expected))
 			require.Equal(t, test.wantStatus, recorder.Code)
 		})
 	}
@@ -245,12 +244,12 @@ func TestMalformedOriginsAndIPv6(t *testing.T) {
 			if test.referer != "" {
 				headers.Set(csrf.HeaderReferer, test.referer)
 			}
-			recorder := serve(t, http.MethodPost, headers, secfetch.WithExpectedOrigins(test.expected))
+			recorder := serve(t, http.MethodPost, headers, csrf.WithExpectedOrigins(test.expected))
 			if test.allowed {
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 				return
 			}
-			assertCSRFRejected(t, recorder, secfetch.HeaderError)
+			assertCSRFRejected(t, recorder, csrf.HeaderError)
 		})
 	}
 }
