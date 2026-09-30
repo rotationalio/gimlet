@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	. "go.rtnl.ai/gimlet/csrf"
+	. "go.rtnl.ai/gimlet/csrf/doublecookie"
 	"go.rtnl.ai/x/api"
 )
 
