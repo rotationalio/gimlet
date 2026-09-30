@@ -21,10 +21,10 @@ func expectedOriginSet(expected []string) map[string]struct{} {
 
 // Checks Origin first and consults Referer only when Origin was not supplied.
 func originOrRefererAllowed(request *http.Request, origins map[string]struct{}) bool {
-	if len(request.Header.Values("Origin")) > 0 {
-		return headerOriginAllowed(request, "Origin", false, origins)
+	if len(request.Header.Values(HeaderOrigin)) > 0 {
+		return headerOriginAllowed(request, HeaderOrigin, false, origins)
 	}
-	return headerOriginAllowed(request, "Referer", true, origins)
+	return headerOriginAllowed(request, HeaderReferer, true, origins)
 }
 
 // Validates one origin-bearing header against the trusted origin set.

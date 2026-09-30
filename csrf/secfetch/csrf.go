@@ -12,10 +12,16 @@ import (
 )
 
 const (
-	// Identifies a rejected CSRF request in the response header.
-	ErrorHeader = "X-CSRF-Error"
-	// Provides the stable machine-readable signal for a rejected request.
+	// Error header and value used to indicate a rejected CSRF request.
+	HeaderError          = "X-CSRF-Error"
 	ErrorRequestRejected = "csrf_request_rejected"
+
+	// Constants for headers used in Fetch Metadata CSRF requests.
+	HeaderOrigin       = "Origin"
+	HeaderReferer      = "Referer"
+	HeaderSecFetchSite = "Sec-Fetch-Site"
+	HeaderSecFetchMode = "Sec-Fetch-Mode"
+	HeaderSecFetchDest = "Sec-Fetch-Dest"
 )
 
 // Describes a request rejected by the CSRF policy in the response body.
@@ -50,35 +56,40 @@ func Middleware(options ...Option) gin.HandlerFunc {
 		}
 
 		// Check the Sec-Fetch-Site header.
-		site, sitePresent, siteValid := singleHeader(c.Request, "Sec-Fetch-Site")
+		site, sitePresent, siteValid := singleHeader(c.Request, HeaderSecFetchSite)
 		knownSite := siteValid && isKnownSite(site)
 
-		// We do not have a Sec-Fetch-Site header, so fall back to checking the
-		// Origin or Referer headers.
+		// We do not have a Sec-Fetch-Site header, so look at fallbacks options.
 		if !sitePresent || !knownSite {
-			// Fallback to checking the Origin or Referer headers.
-			if originOrRefererAllowed(c.Request, origins) {
-				c.Next()
-				return
-			}
-
-			// If we have no helpful, secure header to read, then use the
-			// fallback CSRF check if available.
-			originPresent := len(c.Request.Header.Values("Origin")) > 0
-			refererPresent := len(c.Request.Header.Values("Referer")) > 0
-			if !sitePresent && !originPresent && !refererPresent && cfg.fallback != nil && cfg.fallback(c) {
+			// Fallback to checking the Origin or Referer headers, if available.
+			originPresent := len(c.Request.Header.Values(HeaderOrigin)) > 0
+			refererPresent := len(c.Request.Header.Values(HeaderReferer)) > 0
+			if (originPresent || refererPresent) && originOrRefererAllowed(c.Request, origins) {
 				c.Next()
 				return
 			}
 
 			// Allow the request with a missing or unknown site if we have
 			// configured it.
-			if !sitePresent && cfg.allowMissingMetadata || sitePresent && cfg.allowUnknownSite {
+			if (!sitePresent && cfg.allowMissingMetadata) || (sitePresent && cfg.allowUnknownSite) {
 				c.Next()
 				return
 			}
 
-			// Reject otherwise.
+			// If there is no other alternative, check the fallback method if
+			// configured, rejecting if the fallback rejects.
+			if !sitePresent && !originPresent && !refererPresent && cfg.fallback != nil {
+				if cfg.fallback(c) {
+					c.Next()
+					return
+				} else {
+					reject(c, errorHeader, cfg.logOnly, "fallback_failed")
+					return
+				}
+			}
+
+			// Reject based on missing or unknown site at this point, since
+			// fallback was not present.
 			reason := "unknown_site"
 			if !sitePresent {
 				reason = "missing_site"
@@ -95,7 +106,7 @@ func Middleware(options ...Option) gin.HandlerFunc {
 			c.Next()
 		case "same-site":
 			// Allow same-site if the origin is allowed.
-			if headerOriginAllowed(c.Request, "Origin", false, origins) {
+			if headerOriginAllowed(c.Request, HeaderOrigin, false, origins) {
 				c.Next()
 				return
 			}
@@ -118,7 +129,7 @@ func Middleware(options ...Option) gin.HandlerFunc {
 func reject(c *gin.Context, errorHeader string, logOnly bool, reason string) {
 	if logOnly {
 		refererOrigin := ""
-		if origin, ok := canonicalOrigin(c.GetHeader("Referer"), true); ok {
+		if origin, ok := canonicalOrigin(c.GetHeader(HeaderReferer), true); ok {
 			refererOrigin = origin
 		}
 
@@ -126,11 +137,11 @@ func reject(c *gin.Context, errorHeader string, logOnly bool, reason string) {
 			slog.String("reason", reason),
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
-			slog.String("sec_fetch_site", c.GetHeader("Sec-Fetch-Site")),
-			slog.String("sec_fetch_mode", c.GetHeader("Sec-Fetch-Mode")),
-			slog.String("sec_fetch_dest", c.GetHeader("Sec-Fetch-Dest")),
-			slog.String("origin", c.GetHeader("Origin")),
-			slog.Bool("referer_present", len(c.Request.Header.Values("Referer")) > 0),
+			slog.String("sec_fetch_site", c.GetHeader(HeaderSecFetchSite)),
+			slog.String("sec_fetch_mode", c.GetHeader(HeaderSecFetchMode)),
+			slog.String("sec_fetch_dest", c.GetHeader(HeaderSecFetchDest)),
+			slog.String("origin", c.GetHeader(HeaderOrigin)),
+			slog.Bool("referer_present", len(c.Request.Header.Values(HeaderReferer)) > 0),
 			slog.String("referer_origin", refererOrigin),
 		)
 		c.Next()

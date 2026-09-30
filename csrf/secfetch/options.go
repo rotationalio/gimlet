@@ -172,7 +172,7 @@ func contains(set map[string]struct{}, value string) bool {
 func namespacedErrorHeader(namespace string) string {
 	namespace = strings.ToLower(strings.TrimSpace(namespace))
 	if namespace == "" {
-		return ErrorHeader
+		return HeaderError
 	}
 
 	var normalized strings.Builder

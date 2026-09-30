@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	csrf "go.rtnl.ai/gimlet/csrf/secfetch"
 	secfetch "go.rtnl.ai/gimlet/csrf/secfetch"
 	"go.rtnl.ai/x/rlog"
 )
@@ -41,6 +42,11 @@ func TestSecFetchSiteValues(t *testing.T) {
 			allowed: false,
 		},
 		{
+			name:    "same-site-missing-origin",
+			site:    "same-site",
+			allowed: false,
+		},
+		{
 			name:    "cross-site-even-with-approved-origin",
 			site:    "cross-site",
 			origin:  "https://app.example.com",
@@ -69,14 +75,14 @@ func TestSecFetchSiteValues(t *testing.T) {
 			headers := make(http.Header)
 			headers.Set("Sec-Fetch-Site", test.site)
 			if test.origin != "" {
-				headers.Set("Origin", test.origin)
+				headers.Set(csrf.HeaderOrigin, test.origin)
 			}
 			recorder := serve(t, http.MethodPost, headers, secfetch.WithExpectedOrigins(approvedOrigins))
 			if test.allowed {
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 				return
 			}
-			assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+			assertCSRFRejected(t, recorder, secfetch.HeaderError)
 		})
 	}
 }
@@ -96,20 +102,20 @@ func TestFallbackRequiresNoRequestMetadata(t *testing.T) {
 		},
 		{
 			name:    "approved origin is checked before fallback",
-			headers: http.Header{"Origin": []string{"https://app.example.com"}},
+			headers: http.Header{csrf.HeaderOrigin: []string{"https://app.example.com"}},
 			allowed: true,
 		},
 		{
 			name:    "unapproved origin cannot be overridden by fallback",
-			headers: http.Header{"Origin": []string{"https://attacker.example"}},
+			headers: http.Header{csrf.HeaderOrigin: []string{"https://attacker.example"}},
 		},
 		{
 			name:    "unapproved referer cannot be overridden by fallback",
-			headers: http.Header{"Referer": []string{"https://attacker.example/action"}},
+			headers: http.Header{csrf.HeaderReferer: []string{"https://attacker.example/action"}},
 		},
 		{
 			name:    "unknown site cannot be overridden by fallback",
-			headers: http.Header{"Sec-Fetch-Site": []string{"future-value"}},
+			headers: http.Header{csrf.HeaderSecFetchSite: []string{"future-value"}},
 		},
 	}
 
@@ -129,9 +135,23 @@ func TestFallbackRequiresNoRequestMetadata(t *testing.T) {
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 				return
 			}
-			assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+			assertCSRFRejected(t, recorder, secfetch.HeaderError)
 		})
 	}
+}
+
+// Rejects a request when the fallback runs and does not approve it.
+func TestFallbackRejectsRequest(t *testing.T) {
+	fallbackCalls := 0
+	recorder := serve(t, http.MethodPost, make(http.Header),
+		secfetch.WithFallback(func(*gin.Context) bool {
+			fallbackCalls++
+			return false
+		}),
+	)
+
+	require.Equal(t, 1, fallbackCalls)
+	assertCSRFRejected(t, recorder, secfetch.HeaderError)
 }
 
 // Confirms safe methods bypass Fetch Metadata checks while writes reject cross-site requests.
@@ -139,7 +159,7 @@ func TestSafeAndMutatingMethods(t *testing.T) {
 	t.Run("safe methods bypass metadata checks", func(t *testing.T) {
 		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
 			t.Run(method, func(t *testing.T) {
-				headers := http.Header{"Sec-Fetch-Site": []string{"cross-site"}}
+				headers := http.Header{csrf.HeaderSecFetchSite: []string{"cross-site"}}
 				recorder := serve(t, method, headers)
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 			})
@@ -149,9 +169,9 @@ func TestSafeAndMutatingMethods(t *testing.T) {
 	t.Run("mutating methods reject cross-site requests", func(t *testing.T) {
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 			t.Run(method, func(t *testing.T) {
-				headers := http.Header{"Sec-Fetch-Site": []string{"cross-site"}}
+				headers := http.Header{csrf.HeaderSecFetchSite: []string{"cross-site"}}
 				recorder := serve(t, method, headers)
-				assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+				assertCSRFRejected(t, recorder, secfetch.HeaderError)
 			})
 		}
 	})
@@ -204,12 +224,12 @@ func TestSafeHTTPMethodsOption(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			recorder := serve(t, test.method, http.Header{"Sec-Fetch-Site": []string{"cross-site"}}, secfetch.WithSafeHTTPMethods(test.safe))
+			recorder := serve(t, test.method, http.Header{csrf.HeaderSecFetchSite: []string{"cross-site"}}, secfetch.WithSafeHTTPMethods(test.safe))
 			if test.allowed {
 				require.Equal(t, http.StatusNoContent, recorder.Code)
 				return
 			}
-			assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+			assertCSRFRejected(t, recorder, secfetch.HeaderError)
 		})
 	}
 }
@@ -227,14 +247,14 @@ func TestLogOnlyMode(t *testing.T) {
 	})
 
 	headers := http.Header{
-		"Sec-Fetch-Site": []string{"cross-site"},
-		"Sec-Fetch-Mode": []string{"cors"},
-		"Sec-Fetch-Dest": []string{"empty"},
-		"Referer":        []string{"https://app.example.com/private?token=secret"},
+		csrf.HeaderSecFetchSite: []string{"cross-site"},
+		csrf.HeaderSecFetchMode: []string{"cors"},
+		csrf.HeaderSecFetchDest: []string{"empty"},
+		csrf.HeaderReferer:      []string{"https://app.example.com/private?token=secret"},
 	}
 	recorder := serve(t, http.MethodPost, headers, secfetch.WithLogOnly(true))
 	require.Equal(t, http.StatusNoContent, recorder.Code)
-	require.Empty(t, recorder.Header().Get(secfetch.ErrorHeader))
+	require.Empty(t, recorder.Header().Get(secfetch.HeaderError))
 	require.Contains(t, logs.String(), "CSRF request would be rejected")
 	require.Contains(t, logs.String(), `"reason":"cross_site"`)
 	require.Contains(t, logs.String(), `"method":"POST"`)
@@ -247,9 +267,9 @@ func TestLogOnlyMode(t *testing.T) {
 
 // Rejects duplicate Sec-Fetch-Site values instead of trusting an ambiguous value.
 func TestDuplicateFetchMetadataHeaderRejected(t *testing.T) {
-	headers := http.Header{"Sec-Fetch-Site": []string{"same-origin", "cross-site"}}
+	headers := http.Header{csrf.HeaderSecFetchSite: []string{"same-origin", "cross-site"}}
 	recorder := serve(t, http.MethodPost, headers)
-	assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+	assertCSRFRejected(t, recorder, secfetch.HeaderError)
 }
 
 // Builds a small Gin route and sends one request through the middleware under test.

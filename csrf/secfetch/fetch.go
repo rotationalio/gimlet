@@ -8,7 +8,7 @@ import (
 // Enforces configured Fetch Mode and Fetch Destination allowlists and requirements.
 func fetchContextAllowed(request *http.Request, modes, destinations map[string]struct{}, cfg config) bool {
 	if len(modes) > 0 || cfg.requireFetchMode {
-		mode, present, valid := singleHeader(request, "Sec-Fetch-Mode")
+		mode, present, valid := singleHeader(request, HeaderSecFetchMode)
 		if !valid || cfg.requireFetchMode && !present {
 			return false
 		}
@@ -18,7 +18,7 @@ func fetchContextAllowed(request *http.Request, modes, destinations map[string]s
 	}
 
 	if len(destinations) > 0 || cfg.requireFetchDestination {
-		destination, present, valid := singleHeader(request, "Sec-Fetch-Dest")
+		destination, present, valid := singleHeader(request, HeaderSecFetchDest)
 		if !valid || cfg.requireFetchDestination && !present {
 			return false
 		}
