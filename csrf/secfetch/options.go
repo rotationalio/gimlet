@@ -74,9 +74,10 @@ func WithNamespace(namespace string) Option {
 	}
 }
 
-// Sets the exact HTTP or HTTPS origins trusted by the policy. The same list is
-// used to approve same-site writes and as the allowlist for Origin/Referer
-// fallback. Entries should be origins, not URL paths or hostnames.
+// Sets the exact HTTP or HTTPS origins trusted by the policy. The list approves
+// same-site writes and validates Origin/Referer when Sec-Fetch-Site is missing or
+// unrecognized. Origin takes precedence over Referer. Entries should be origin
+// triples (scheme, host, port only), not URL paths or hostnames.
 func WithExpectedOrigins(origins []string) Option {
 	copyOfOrigins := append([]string(nil), origins...)
 	return func(cfg *config) {
@@ -93,17 +94,18 @@ func WithFallback(check func(*gin.Context) bool) Option {
 	}
 }
 
-// Allows state-changing requests with no Sec-Fetch-Site after fallback and
-// expected Origin/Referer checks fail. This compatibility relaxation is disabled
-// by default.
+// Allows state-changing requests with no Sec-Fetch-Site when neither Origin nor
+// Referer is supplied. A supplied, untrusted Origin or Referer is rejected before
+// this option is considered. This compatibility relaxation is disabled by default.
 func WithAllowMissingMetadata(allow bool) Option {
 	return func(cfg *config) {
 		cfg.allowMissingMetadata = allow
 	}
 }
 
-// Allows state-changing requests with an unrecognized Sec-Fetch-Site after
-// fallback and expected Origin/Referer checks fail. This is disabled by default.
+// Allows state-changing requests with an unrecognized Sec-Fetch-Site when neither
+// Origin nor Referer is supplied. A supplied, untrusted Origin or Referer is
+// rejected before this option is considered. This is disabled by default.
 func WithAllowUnknownSite(allow bool) Option {
 	return func(cfg *config) {
 		cfg.allowUnknownSite = allow

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	csrf "go.rtnl.ai/gimlet/csrf/secfetch"
 	secfetch "go.rtnl.ai/gimlet/csrf/secfetch"
@@ -78,6 +79,48 @@ func TestMissingAndUnknownMetadataFallback(t *testing.T) {
 				return
 			}
 			assertCSRFRejected(t, recorder, secfetch.HeaderError)
+		})
+	}
+}
+
+// Rejects mismatched Origin or Referer before missing/unknown-site options and fallback.
+func TestUntrustedProvenanceCannotBeOverriddenForMissingOrUnknownSite(t *testing.T) {
+	trustedOrigins := []string{"https://app.example.com"}
+	tests := []struct {
+		name    string
+		headers http.Header
+		option  secfetch.Option
+	}{
+		{
+			name:    "missing site with untrusted origin",
+			headers: http.Header{csrf.HeaderOrigin: []string{"https://attacker.example"}},
+			option:  secfetch.WithAllowMissingMetadata(true),
+		},
+		{
+			name:    "unknown site with untrusted origin",
+			headers: http.Header{csrf.HeaderSecFetchSite: []string{"future-value"}, csrf.HeaderOrigin: []string{"https://attacker.example"}},
+			option:  secfetch.WithAllowUnknownSite(true),
+		},
+		{
+			name:    "untrusted referer with missing site",
+			headers: http.Header{csrf.HeaderReferer: []string{"https://attacker.example/action"}},
+			option:  secfetch.WithAllowMissingMetadata(true),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fallbackCalls := 0
+			recorder := serve(t, http.MethodPost, test.headers,
+				secfetch.WithExpectedOrigins(trustedOrigins),
+				test.option,
+				secfetch.WithFallback(func(*gin.Context) bool {
+					fallbackCalls++
+					return true
+				}),
+			)
+			assertCSRFRejected(t, recorder, secfetch.HeaderError)
+			require.Equal(t, 0, fallbackCalls)
 		})
 	}
 }

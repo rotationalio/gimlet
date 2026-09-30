@@ -28,11 +28,17 @@ const (
 var ErrCSRFVerification = errors.New("csrf verification failed for request")
 
 // Returns Gin middleware that applies the Fetch Metadata CSRF policy.
-// Safe methods (GET, HEAD, and OPTIONS) pass through. For state-changing methods,
-// cross-site requests are denied, same-origin requests are allowed, and same-site
-// requests require an exact match in the configured expected origins. Requests
-// without usable Fetch Metadata must prove an expected Origin or Referer unless
-// explicitly relaxed by an option or accepted by the configured fallback.
+//
+//   - Safe methods (GET, HEAD, and OPTIONS; unless otherwise configured) pass
+//     through.
+//   - Fetch mode and destination headers are checked if configured.
+//   - cross-site requests are always rejected.
+//   - same-origin requests are always allowed.
+//   - same-site requests are allowed with an exact match from a configured
+//     expected origin to a safe origin header.
+//   - Unknown site values are allowed only when configured.
+//   - Configured fallback checks are final, and only applied when no Fetch
+//     Metadata or safe origin headers are present.
 func Middleware(options ...Option) gin.HandlerFunc {
 	cfg := configure(options...)
 	origins := expectedOriginSet(cfg.expectedOrigins)
@@ -55,41 +61,45 @@ func Middleware(options ...Option) gin.HandlerFunc {
 			return
 		}
 
-		// Check the Sec-Fetch-Site header.
+		// Check for the Sec-Fetch-Site header.
 		site, sitePresent, siteValid := singleHeader(c.Request, HeaderSecFetchSite)
 		knownSite := siteValid && isKnownSite(site)
 
-		// We do not have a Sec-Fetch-Site header, so look at fallbacks options.
+		// Without a recognized site value we have several fallback options to
+		// check.
 		if !sitePresent || !knownSite {
-			// Fallback to checking the Origin or Referer headers, if available.
+			// Use Origin or Referer if available, rejecting on a mismatch to
+			// either.
 			originPresent := len(c.Request.Header.Values(HeaderOrigin)) > 0
 			refererPresent := len(c.Request.Header.Values(HeaderReferer)) > 0
-			if (originPresent || refererPresent) && originOrRefererAllowed(c.Request, origins) {
+			if originPresent || refererPresent {
+				if !originOrRefererAllowed(c.Request, origins) {
+					reject(c, errorHeader, cfg.logOnly, "origin_not_allowed")
+					return
+				}
 				c.Next()
 				return
 			}
 
-			// Allow the request with a missing or unknown site if we have
-			// configured it.
+			// Options only apply when we do not have a trusted Origin/Referer.
 			if (!sitePresent && cfg.allowMissingMetadata) || (sitePresent && cfg.allowUnknownSite) {
 				c.Next()
 				return
 			}
 
-			// If there is no other alternative, check the fallback method if
-			// configured, rejecting if the fallback rejects.
-			if !sitePresent && !originPresent && !refererPresent && cfg.fallback != nil {
+			// The fallback is only for requests with no Fetch Metadata, Origin,
+			// or Referer headers.
+			if !sitePresent && cfg.fallback != nil {
 				if cfg.fallback(c) {
 					c.Next()
 					return
-				} else {
-					reject(c, errorHeader, cfg.logOnly, "fallback_failed")
-					return
 				}
+				reject(c, errorHeader, cfg.logOnly, "fallback_failed")
+				return
 			}
 
-			// Reject based on missing or unknown site at this point, since
-			// fallback was not present.
+			// If we have no fallback, then reject for the site header being
+			// missing or unknown.
 			reason := "unknown_site"
 			if !sitePresent {
 				reason = "missing_site"

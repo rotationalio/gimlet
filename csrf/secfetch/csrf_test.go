@@ -30,6 +30,12 @@ func TestSecFetchSiteValues(t *testing.T) {
 			allowed: true,
 		},
 		{
+			name:    "same-origin-keeps-existing-site-policy",
+			site:    "same-origin",
+			origin:  "https://other.example.com",
+			allowed: true,
+		},
+		{
 			name:    "same-site-approved-origin",
 			site:    "same-site",
 			origin:  "https://app.example.com",
@@ -252,7 +258,10 @@ func TestLogOnlyMode(t *testing.T) {
 		csrf.HeaderSecFetchDest: []string{"empty"},
 		csrf.HeaderReferer:      []string{"https://app.example.com/private?token=secret"},
 	}
-	recorder := serve(t, http.MethodPost, headers, secfetch.WithLogOnly(true))
+	recorder := serve(t, http.MethodPost, headers,
+		secfetch.WithExpectedOrigins([]string{"https://app.example.com"}),
+		secfetch.WithLogOnly(true),
+	)
 	require.Equal(t, http.StatusNoContent, recorder.Code)
 	require.Empty(t, recorder.Header().Get(secfetch.HeaderError))
 	require.Contains(t, logs.String(), "CSRF request would be rejected")
