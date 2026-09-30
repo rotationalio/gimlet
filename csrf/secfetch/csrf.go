@@ -1,64 +1,121 @@
+// Package csrf provides Fetch Metadata CSRF protection middleware for Gin.
 package csrf
 
-// TODO: http request type below; for now it's like pseudo-code
-func TODOCheck(request any) error {
-	// TODO: implement these checks in order; return early when a policy decides:
-	//
-	// 1. Read Sec-Fetch-Site and the other Sec-Fetch headers. If Mode, Dest, or
-	//    User is present, inspect it only when that check is configured. If one is
-	//    absent, skip it unless the user explicitly requires it. Never use
-	//    User-Agent to decide whether a request came from a browser.
-	//
-	// 2. For safe methods (GET, HEAD, OPTIONS), allow by default. Application
-	//    handlers must never change state on these methods. TRACE is not considered
-	//    safe here.
-	//
-	// 3. For a state-changing method with no Sec-Fetch-Site, first run the optional
-	//    fallback predicate (for example, to allow a request already authenticated
-	//    with a non-cookie credential). Otherwise, validate Origin, then Referer,
-	//    against configured exact origins. If neither proves an allowed origin,
-	//    reject by default. Only WithAllowMissingMetadata(true) should make this
-	//    fail open. Missing headers can mean an old browser or a proxy stripped
-	//    them, not just curl.
-	//
-	// 4. For a present Sec-Fetch-Site value, switch on its exact value:
-	//    - "same-origin": allow; this does not protect against XSS on this origin.
-	//    - "same-site": allow only when Origin exactly matches WithAllowSameSite's
-	//      approved origins. Require scheme, host, and port; reject missing, "null",
-	//      malformed, or unapproved origins. No wildcards or suffix matching.
-	//    - "cross-site": reject state-changing requests, regardless of Origin.
-	//    - "none": reject state-changing requests by default; allow only when
-	//      explicitly configured.
-	//    - unknown value: use the same fallback checks as missing metadata, then
-	//      reject by default. Only WithAllowUnknownSite(true) should fail open.
-	//
-	// 5. Do not let Mode, Dest, or User override a cross-site write rejection.
-	//    "navigate"/"document" can describe a cross-site form POST too; they are
-	//    context hints, not proof that a state-changing request is safe.
-	//
-	// 6. On rejection, preserve Gimlet's CSRF status, response body, and stable
-	//    error signal. Set the error header derived from the configured namespace.
-	//    Treat every approved same-site origin as trusted to make authenticated
-	//    writes; a compromised or XSS-vulnerable approved origin can bypass CSRF
-	//    protection.
+import (
+	"errors"
+	"log/slog"
+	"net/http"
 
-	return nil // TODO: reaching this point means the request is allowed; reject explicitly above? otherwise reject at the end and exit early when an "allow" stat is reached
+	"github.com/gin-gonic/gin"
+	"go.rtnl.ai/gimlet"
+	"go.rtnl.ai/x/rlog"
+)
+
+const (
+	// Identifies a rejected CSRF request in the response header.
+	ErrorHeader = "X-CSRF-Error"
+	// Provides the stable machine-readable signal for a rejected request.
+	ErrorRequestRejected = "csrf_request_rejected"
+)
+
+// Describes a request rejected by the CSRF policy in the response body.
+var ErrCSRFVerification = errors.New("csrf verification failed for request")
+
+// Returns Gin middleware that applies the Fetch Metadata CSRF policy.
+// Safe methods (GET, HEAD, and OPTIONS) pass through. For state-changing methods,
+// cross-site requests are denied, same-origin requests are allowed, and same-site
+// requests require an exact match in the configured expected origins. Requests
+// without usable Fetch Metadata must prove an expected Origin or Referer unless
+// explicitly relaxed by an option or accepted by the configured fallback.
+func Middleware(options ...Option) gin.HandlerFunc {
+	cfg := configure(options...)
+	origins := expectedOriginSet(cfg.expectedOrigins)
+	allowedModes := stringSet(cfg.allowedFetchModes)
+	allowedDestinations := stringSet(cfg.allowedFetchDestinations)
+	safeMethods := stringSet(cfg.safeHTTPMethods)
+	errorHeader := namespacedErrorHeader(cfg.namespace)
+
+	return func(c *gin.Context) {
+		if isSafeMethod(c.Request.Method, safeMethods) {
+			c.Next()
+			return
+		}
+
+		site, sitePresent, siteValid := singleHeader(c.Request, "Sec-Fetch-Site")
+		knownSite := siteValid && isKnownSite(site)
+		if (!sitePresent || !knownSite) && cfg.fallback != nil && cfg.fallback(c) {
+			c.Next()
+			return
+		}
+
+		if !fetchContextAllowed(c.Request, allowedModes, allowedDestinations, cfg) {
+			reject(c, errorHeader, cfg.logOnly, "fetch_context_not_allowed")
+			return
+		}
+
+		if !sitePresent || !knownSite {
+			if originOrRefererAllowed(c.Request, origins) {
+				c.Next()
+				return
+			}
+
+			if !sitePresent && cfg.allowMissingMetadata || sitePresent && cfg.allowUnknownSite {
+				c.Next()
+				return
+			}
+
+			reason := "unknown_site"
+			if !sitePresent {
+				reason = "missing_site"
+			}
+			reject(c, errorHeader, cfg.logOnly, reason)
+			return
+		}
+
+		switch site {
+		case "same-origin":
+			c.Next()
+		case "same-site":
+			if headerOriginAllowed(c.Request, "Origin", false, origins) {
+				c.Next()
+				return
+			}
+			reject(c, errorHeader, cfg.logOnly, "same_site_origin_not_allowed")
+		case "cross-site":
+			reject(c, errorHeader, cfg.logOnly, "cross_site")
+		case "none":
+			if cfg.allowSiteNone {
+				c.Next()
+				return
+			}
+			reject(c, errorHeader, cfg.logOnly, "site_none")
+		}
+	}
 }
 
-// TODO: options to expose from the secfetch csrf package:
-//   - WithNamespace(ns string): namespace the CSRF error header, e.g. X-Namespace-CSRF-Error.
-//   - WithExpectedOrigins(origins []string): exact origins accepted by the Origin/Referer fallback; default empty.
-//   - WithAllowSameSite(origins []string): allow same-site writes only from these exact origins; default empty.
-//   - WithFallback(check func(*gin.Context) bool): optional verified-auth check for missing/unknown metadata; default none.
-//   - WithAllowMissingMetadata(allow bool): allow unverified state-changing requests with no Fetch Metadata; default false.
-//   - WithAllowUnknownSite(allow bool): allow an unrecognized Sec-Fetch-Site value without fallback validation; default false.
-//   - WithAllowSiteNone(allow bool): allow state-changing requests with Sec-Fetch-Site: none; default false.
-//   - WithAllowedFetchModes(modes []string): restrict Sec-Fetch-Mode when present; no restriction by default.
-//   - WithAllowedFetchDestinations(destinations []string): restrict Sec-Fetch-Dest when present; no restriction by default.
-//   - WithRequireFetchMode(require bool): reject state-changing requests if Sec-Fetch-Mode is missing; default false.
-//   - WithRequireFetchDestination(require bool): reject state-changing requests if Sec-Fetch-Dest is missing; default false.
-//
-// The fallback check runs after authentication middleware. It must confirm that a
-// non-cookie credential was successfully authenticated, not merely that a header
-// or credential was supplied. If it returns false, continue with Origin/Referer
-// validation and reject if no configured policy allows the request.
+// Logs or rejects a request that failed the configured CSRF policy.
+func reject(c *gin.Context, errorHeader string, logOnly bool, reason string) {
+	if logOnly {
+		refererOrigin := ""
+		if origin, ok := canonicalOrigin(c.GetHeader("Referer"), true); ok {
+			refererOrigin = origin
+		}
+
+		rlog.WarnAttrs(c.Request.Context(), "CSRF request would be rejected",
+			slog.String("reason", reason),
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.Request.URL.Path),
+			slog.String("sec_fetch_site", c.GetHeader("Sec-Fetch-Site")),
+			slog.String("sec_fetch_mode", c.GetHeader("Sec-Fetch-Mode")),
+			slog.String("sec_fetch_dest", c.GetHeader("Sec-Fetch-Dest")),
+			slog.String("origin", c.GetHeader("Origin")),
+			slog.Bool("referer_present", len(c.Request.Header.Values("Referer")) > 0),
+			slog.String("referer_origin", refererOrigin),
+		)
+		c.Next()
+		return
+	}
+
+	c.Header(errorHeader, ErrorRequestRejected)
+	gimlet.Abort(c, http.StatusForbidden, ErrCSRFVerification)
+}

@@ -330,7 +330,118 @@ You can also pass a `ratelimit.Limiter` directly into the middleware constructor
 
 ## CSRF Protection
 
-[Cross-Site Request Forgeries](https://owasp.org/www-community/attacks/csrf) occur when an attacker attempts to trick a web application into executing the actions of a logged in user, generally by using social engineering to send a link via email or chat. Gimlet implements [Double Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#alternative-using-a-double-submit-cookie-pattern) middleware to prevent this attack.
+[Cross-Site Request Forgeries](https://owasp.org/www-community/attacks/csrf) occur when an attacker attempts to trick a web application into executing the actions of a logged in user, generally by using social engineering to send a link via email or chat or via an 'evil' browser extension.
+
+### Fetch Metadata (`csrf/secfetch`)
+
+#### Headers
+
+Fetch Metadata headers tell the server how a browser request started: `Sec-Fetch-Site` describes its relationship to the destination, `Sec-Fetch-Mode` describes the request mode, and `Sec-Fetch-Dest` describes what the response is for, such as a document or image.
+
+- [Fetch Metadata specification](https://www.w3.org/TR/fetch-metadata/)
+- [MDN overview](https://developer.mozilla.org/en-US/docs/Glossary/Fetch_metadata_request_header)
+- [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#use-fetch-metadata-headers-to-verify-nature-of-the-request)
+
+These are browser-controlled, restricted request headers: JavaScript cannot set or change them. This lets the middleware reject requests started by another site, even when the browser automatically includes the user's login cookies. Prefer this approach over doublecookie for new applications; the frontend does not need to manage cookies, headers, and retries for CSRF tokens.
+
+These headers are not authentication. Tools such as curl can set them freely, so keep authentication and authorization on protected endpoints. Modern browsers send them in secure contexts, normally HTTPS or localhost; make sure proxies (such as TLS terminators) forward them unchanged.
+
+#### Defaults
+
+Both CSRF subpackages are named `csrf`. Import `go.rtnl.ai/gimlet/csrf/secfetch` and use `csrf.Middleware(...)`.
+
+- `GET`, `HEAD`, and `OPTIONS` pass without CSRF checks. These endpoints must not change application state; use `WithSafeHTTPMethods` to remove any of them from the bypass list.
+- For other methods, `same-origin` is allowed. `same-site` requires an `Origin` matching `WithExpectedOrigins`; sibling subdomains are not trusted automatically.
+- `cross-site` and `none` are rejected for those methods, including when a fallback is configured. Safe browser navigations still pass through the safe-method rule above.
+- Missing or unrecognized `Sec-Fetch-Site` first tries `WithFallback`. If it does not accept the request, a trusted `Origin` is required, or a trusted `Referer` if `Origin` is absent. With no configured expected origins or successful fallback, these requests are rejected.
+- `Sec-Fetch-Mode` and `Sec-Fetch-Dest` are neither required nor restricted unless configured.
+
+Rejections return HTTP 403 with Gimlet's standard error response for `csrf verification failed for request`, and `X-CSRF-Error: csrf_request_rejected` (available as `csrf.ErrorRequestRejected`). `WithNamespace` changes the error header name, not the status or body.
+
+#### Options
+
+Pass options to `csrf.Middleware(...)`:
+
+- `WithLogOnly(true)`: log requests that would be rejected and let them continue. Review these warnings for legitimate flows before disabling log-only mode and enforcing rejections.
+- `WithSafeHTTPMethods([]string{"GET", "HEAD", "OPTIONS"})`: choose which safe methods bypass checks. Only these three methods are accepted; methods such as `POST` can never be exempted. Pass an empty list to check every method.
+- `WithExpectedOrigins([]string{"https://app.example.com"})`: trust these exact origins (scheme, host, and port) for same-site requests and the Origin/Referer checks. Use browser-facing URLs, not Docker service names.
+- `WithNamespace("application")`: use `X-Application-CSRF-Error` instead of `X-CSRF-Error`.
+- `WithFallback(check)`: provide a `func(*gin.Context) bool` for missing or unrecognized `Sec-Fetch-Site`. Returning `true` accepts the request before other CSRF checks, including mode/destination restrictions. Verify credentials or CSRF tokens; header presence alone is not enough.
+- `WithAllowMissingMetadata(true)`: allow requests without `Sec-Fetch-Site` even if fallback and Origin/Referer checks fail. Useful for unrestricted API clients, but also allows browsers that omit the header. Prefer a verified bearer fallback on endpoints that accept login cookies.
+- `WithAllowUnknownSite(true)`: likewise allow unrecognized `Sec-Fetch-Site` values after those checks fail. This is a compatibility escape hatch, not normally needed.
+- `WithAllowSiteNone(true)`: allow non-safe methods with `Sec-Fetch-Site: none`, meaning no requesting site was identified. Enable only if your application needs this behavior.
+- `WithAllowedFetchModes([]string{...})` / `WithAllowedFetchDestinations([]string{...})`: restrict the corresponding headers when present. For example, API fetches commonly use mode `cors` or `same-origin` and destination `empty`; form navigations use different values.
+- `WithRequireFetchMode(true)` / `WithRequireFetchDestination(true)`: also reject requests missing the corresponding header, unless accepted by `WithFallback`. Leave these off for clients without Fetch Metadata.
+
+The three `WithAllow...` settings default to `false`; mode/destination allowlists default to unrestricted.
+
+#### Recipe: allow verified bearer tokens, protect cookie-authenticated requests
+
+Run `auth.Authenticate` **before** CSRF middleware. Then requests from curl or other API clients without Fetch Metadata can pass if Gimlet verified a bearer token, while cookie-authenticated requests still need CSRF protection. Check the verified authentication source, not just whether an `Authorization` header exists. Browser JavaScript can set bearer headers too; the important distinction is that bearer tokens are explicitly supplied rather than automatically attached like cookies.
+
+This example also includes an optional signed doublecookie fallback:
+
+```go
+import (
+    "net/url"
+
+    "github.com/gin-gonic/gin"
+    "go.rtnl.ai/gimlet/auth"
+    doublecookie "go.rtnl.ai/gimlet/csrf/doublecookie"
+    csrf "go.rtnl.ai/gimlet/csrf/secfetch"
+)
+
+// issuer is your configured authenticator; router and postAction are your application handlers.
+authenticate, err := auth.Authenticate(issuer)
+if err != nil {
+    panic(err)
+}
+
+// Optional legacy-browser support. Use a persistent secret of at least 32 random bytes.
+tokens, err := doublecookie.NewSecureTokenHandler(secret, "application")
+if err != nil {
+    panic(err)
+}
+names := tokens.(doublecookie.Namespacer).Namespace()
+func cookieCheck(c *gin.Context) bool {
+    reference, err := c.Cookie(names.ReferenceCookie)
+    if err != nil || reference == "" {
+        return false
+    }
+    token, err := url.QueryUnescape(c.GetHeader(names.Header))
+    if err != nil || token == "" {
+        return false
+    }
+    valid, err := tokens.VerifyCSRFToken(reference, token)
+    return valid && err == nil
+}
+
+router.POST("/api/action", authenticate, csrf.Middleware(
+    csrf.WithNamespace("application"),
+    csrf.WithExpectedOrigins([]string{
+    	"https://app.example.com",
+    	"https://app.example.com:8080",
+    	"https://auth.app.example.com",
+    }),
+    csrf.WithFallback(func(c *gin.Context) bool {
+        source, err := auth.GetAuthenticationSource(c)
+        if err == nil && source == auth.AuthenticationSourceBearer {
+            return true
+        }
+
+        // Optional: remove this cookie check and return false to omit doublecookie support.
+        return cookieCheck(c)
+    }),
+), postAction)
+```
+
+For the cookie fallback, call `tokens.SetDoubleCookieToken(c)` during login or when serving a form, and have the frontend copy the `names.Cookie` value into the `names.Header` request header (see below). `NewSecureTokenHandler` uses secure, host-only cookies for HTTPS.
+
+Doublecookie is not normally needed even for browsers predating Fetch Metadata: a matching Origin/Referer still passes. It is only needed here for compatibility with very old browsers (including pre-Origin browsers) or clients that provide neither a usable Fetch Metadata header nor a trusted Origin/Referer. Without the cookie fallback, those requests are rejected unless authenticated by a verified bearer token. A failed cookie check can still pass the trusted Origin/Referer check; a known `cross-site` request never reaches this fallback.
+
+### Double-submit cookies (`csrf/doublecookie`)
+
+Gimlet implements [Double Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#alternative-using-a-double-submit-cookie-pattern) middleware to prevent this attack.
 
 An endpoint that is protected by this middleware requires a request that has:
 
