@@ -84,8 +84,8 @@ func WithExpectedOrigins(origins []string) Option {
 	}
 }
 
-// Adds an application-defined, already-authenticated bypass for requests with
-// absent or unrecognized Sec-Fetch-Site. Use it for verified non-cookie
+// WithFallback adds an application-defined, already-authenticated bypass only when
+// Sec-Fetch-Site, Origin, and Referer are all absent. Use it for verified non-cookie
 // authentication or explicit double-cookie verification, not credential presence.
 func WithFallback(check func(*gin.Context) bool) Option {
 	return func(cfg *config) {

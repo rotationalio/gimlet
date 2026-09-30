@@ -81,6 +81,59 @@ func TestSecFetchSiteValues(t *testing.T) {
 	}
 }
 
+// Uses the fallback only when Fetch-Site, Origin, and Referer provide no evidence to compare.
+func TestFallbackRequiresNoRequestMetadata(t *testing.T) {
+	tests := []struct {
+		name           string
+		headers        http.Header
+		allowed        bool
+		fallbackCalled bool
+	}{
+		{
+			name:           "missing metadata uses fallback",
+			allowed:        true,
+			fallbackCalled: true,
+		},
+		{
+			name:    "approved origin is checked before fallback",
+			headers: http.Header{"Origin": []string{"https://app.example.com"}},
+			allowed: true,
+		},
+		{
+			name:    "unapproved origin cannot be overridden by fallback",
+			headers: http.Header{"Origin": []string{"https://attacker.example"}},
+		},
+		{
+			name:    "unapproved referer cannot be overridden by fallback",
+			headers: http.Header{"Referer": []string{"https://attacker.example/action"}},
+		},
+		{
+			name:    "unknown site cannot be overridden by fallback",
+			headers: http.Header{"Sec-Fetch-Site": []string{"future-value"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fallbackCalls := 0
+			recorder := serve(t, http.MethodPost, test.headers,
+				secfetch.WithExpectedOrigins([]string{"https://app.example.com"}),
+				secfetch.WithFallback(func(*gin.Context) bool {
+					fallbackCalls++
+					return true
+				}),
+			)
+
+			require.Equal(t, test.fallbackCalled, fallbackCalls > 0)
+			if test.allowed {
+				require.Equal(t, http.StatusNoContent, recorder.Code)
+				return
+			}
+			assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+		})
+	}
+}
+
 // Confirms safe methods bypass Fetch Metadata checks while writes reject cross-site requests.
 func TestSafeAndMutatingMethods(t *testing.T) {
 	t.Run("safe methods bypass metadata checks", func(t *testing.T) {

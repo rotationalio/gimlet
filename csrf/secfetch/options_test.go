@@ -9,27 +9,28 @@ import (
 	secfetch "go.rtnl.ai/gimlet/csrf/secfetch"
 )
 
-// Ensures the custom bypass applies only when site metadata is absent or unrecognized.
-func TestFallbackRunsOnlyForMissingOrUnknownSite(t *testing.T) {
+// Ensures the custom bypass applies only when Fetch-Site, Origin, and Referer are absent.
+func TestFallbackRunsOnlyWithoutRequestMetadata(t *testing.T) {
 	calls := 0
 	fallback := secfetch.WithFallback(func(*gin.Context) bool {
 		calls++
 		return true
 	})
 
-	for _, site := range []string{"", "future-value"} {
-		headers := make(http.Header)
-		if site != "" {
-			headers.Set("Sec-Fetch-Site", site)
-		}
-		recorder := serve(t, http.MethodPost, headers, fallback)
-		require.Equal(t, http.StatusNoContent, recorder.Code)
-	}
-	require.Equal(t, 2, calls)
+	recorder := serve(t, http.MethodPost, make(http.Header), fallback)
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Equal(t, 1, calls)
 
-	recorder := serve(t, http.MethodPost, http.Header{"Sec-Fetch-Site": []string{"cross-site"}}, fallback)
-	assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
-	require.Equal(t, 2, calls, "known cross-site requests must not invoke the fallback")
+	for _, headers := range []http.Header{
+		{"Sec-Fetch-Site": []string{"future-value"}},
+		{"Sec-Fetch-Site": []string{"cross-site"}},
+		{"Origin": []string{"https://untrusted.example"}},
+		{"Referer": []string{"https://untrusted.example/action"}},
+	} {
+		recorder := serve(t, http.MethodPost, headers, fallback)
+		assertCSRFRejected(t, recorder, secfetch.ErrorHeader)
+	}
+	require.Equal(t, 1, calls, "requests with any provenance header must not invoke the fallback")
 }
 
 // Confirms the explicitly relaxed policy can permit state-changing requests from site none.

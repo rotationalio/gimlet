@@ -36,34 +36,49 @@ func Middleware(options ...Option) gin.HandlerFunc {
 	errorHeader := namespacedErrorHeader(cfg.namespace)
 
 	return func(c *gin.Context) {
+		// Allow safe methods, no matter what.
 		if isSafeMethod(c.Request.Method, safeMethods) {
 			c.Next()
 			return
 		}
 
-		site, sitePresent, siteValid := singleHeader(c.Request, "Sec-Fetch-Site")
-		knownSite := siteValid && isKnownSite(site)
-		if (!sitePresent || !knownSite) && cfg.fallback != nil && cfg.fallback(c) {
-			c.Next()
-			return
-		}
-
+		// Check the Sec-Fetch-Mode and Sec-Fetch-Dest headers if configured,
+		// even if we don't later find a Sec-Fetch-Site header.
 		if !fetchContextAllowed(c.Request, allowedModes, allowedDestinations, cfg) {
 			reject(c, errorHeader, cfg.logOnly, "fetch_context_not_allowed")
 			return
 		}
 
+		// Check the Sec-Fetch-Site header.
+		site, sitePresent, siteValid := singleHeader(c.Request, "Sec-Fetch-Site")
+		knownSite := siteValid && isKnownSite(site)
+
+		// We do not have a Sec-Fetch-Site header, so fall back to checking the
+		// Origin or Referer headers.
 		if !sitePresent || !knownSite {
+			// Fallback to checking the Origin or Referer headers.
 			if originOrRefererAllowed(c.Request, origins) {
 				c.Next()
 				return
 			}
 
+			// If we have no helpful, secure header to read, then use the
+			// fallback CSRF check if available.
+			originPresent := len(c.Request.Header.Values("Origin")) > 0
+			refererPresent := len(c.Request.Header.Values("Referer")) > 0
+			if !sitePresent && !originPresent && !refererPresent && cfg.fallback != nil && cfg.fallback(c) {
+				c.Next()
+				return
+			}
+
+			// Allow the request with a missing or unknown site if we have
+			// configured it.
 			if !sitePresent && cfg.allowMissingMetadata || sitePresent && cfg.allowUnknownSite {
 				c.Next()
 				return
 			}
 
+			// Reject otherwise.
 			reason := "unknown_site"
 			if !sitePresent {
 				reason = "missing_site"
@@ -72,18 +87,24 @@ func Middleware(options ...Option) gin.HandlerFunc {
 			return
 		}
 
+		// Check the site against the configured allowed sites. At this point,
+		// we are sure that site is a valid Sec-Fetch-Site value from the spec.
 		switch site {
 		case "same-origin":
+			// Always allow same-origin.
 			c.Next()
 		case "same-site":
+			// Allow same-site if the origin is allowed.
 			if headerOriginAllowed(c.Request, "Origin", false, origins) {
 				c.Next()
 				return
 			}
 			reject(c, errorHeader, cfg.logOnly, "same_site_origin_not_allowed")
 		case "cross-site":
+			// Always reject cross-site.
 			reject(c, errorHeader, cfg.logOnly, "cross_site")
 		case "none":
+			// Allow none if configured.
 			if cfg.allowSiteNone {
 				c.Next()
 				return
