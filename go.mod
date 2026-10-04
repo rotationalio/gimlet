@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/gin-gonic/gin v1.12.0
+	go.rtnl.ai/confire v1.2.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/stretchr/testify v1.12.1

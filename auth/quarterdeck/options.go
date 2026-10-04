@@ -1,11 +1,84 @@
 package quarterdeck
 
 import (
+	"fmt"
+	"math"
 	"net/http"
 	"net/url"
+	"time"
+
+	"go.rtnl.ai/confire"
 )
 
 type Option func(*Quarterdeck) error
+
+// SyncConfig controls Quarterdeck synchronization and reauthentication timing.
+type SyncConfig struct {
+	SyncTimeout                time.Duration `split_words:"true" default:"20s" desc:"maximum duration for each synchronization request to Quarterdeck"`
+	BackoffTimeout             time.Duration `split_words:"true" default:"5m" desc:"maximum total duration allowed for synchronization retries"`
+	BackoffInitialInterval     time.Duration `split_words:"true" default:"5s" desc:"initial delay between synchronization retries"`
+	BackoffRandomizationFactor float64       `split_words:"true" default:"0.07" desc:"randomization factor applied to synchronization retry delays"`
+	BackoffMultiplier          float64       `split_words:"true" default:"2.0" desc:"multiplier applied to the delay after each synchronization retry"`
+	BackoffMaxInterval         time.Duration `split_words:"true" default:"60s" desc:"maximum delay between synchronization retries"`
+	SyncInterval               time.Duration `split_words:"true" default:"1h" desc:"fallback interval when the response does not specify a cache expiry"`
+	MinSyncInterval            time.Duration `split_words:"true" default:"20s" desc:"minimum delay between automatically scheduled synchronization attempts"`
+	ReauthTimeout              time.Duration `split_words:"true" default:"5s" desc:"maximum duration for reauthentication requests to Quarterdeck"`
+}
+
+// NewDefaultSyncConfig constructs a sync configuration from the confire defaults
+// declared on SyncConfig.
+func NewDefaultSyncConfig() (SyncConfig, error) {
+	var config SyncConfig
+	if err := confire.Process("quarterdeck", &config, confire.NoEnv); err != nil {
+		return SyncConfig{}, fmt.Errorf("could not load default Quarterdeck sync config: %w", err)
+	}
+	return config, nil
+}
+
+// Validate checks that all configured durations and backoff parameters are usable.
+func (c SyncConfig) Validate() (err error) {
+	if c.SyncTimeout <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "syncTimeout", "must be positive"))
+	}
+	if c.BackoffTimeout <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "backoffTimeout", "must be positive"))
+	}
+	if c.BackoffInitialInterval <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "backoffInitialInterval", "must be positive"))
+	}
+	if math.IsNaN(c.BackoffRandomizationFactor) || c.BackoffRandomizationFactor < 0 || c.BackoffRandomizationFactor >= 1 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "backoffRandomizationFactor", "must be in [0, 1)"))
+	}
+	if math.IsNaN(c.BackoffMultiplier) || c.BackoffMultiplier <= 1 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "backoffMultiplier", "must be greater than 1"))
+	}
+	if c.BackoffMaxInterval < c.BackoffInitialInterval {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "backoffMaxInterval", "must be at least the initial interval"))
+	}
+	if c.SyncInterval <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "syncInterval", "must be positive"))
+	}
+	if c.MinSyncInterval <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "minSyncInterval", "must be positive"))
+	}
+	if c.ReauthTimeout <= 0 {
+		err = confire.Join(err, confire.Invalid("quarterdeck", "reauthTimeout", "must be positive"))
+	}
+	return err
+}
+
+// WithSyncConfig replaces the default timing configuration with the supplied
+// config, which must contain valid values for every field. Use NewDefaultSyncConfig
+// to start from the package defaults and change selected values.
+func WithSyncConfig(config SyncConfig) Option {
+	return func(q *Quarterdeck) error {
+		if err := config.Validate(); err != nil {
+			return fmt.Errorf("invalid Quarterdeck sync config: %w", err)
+		}
+		q.syncConfig = config
+		return nil
+	}
+}
 
 func WithClient(client *http.Client) Option {
 	return func(q *Quarterdeck) error {
