@@ -12,8 +12,8 @@ import (
 
 type Option func(*Quarterdeck) error
 
-// SyncConfig controls Quarterdeck synchronization and reauthentication timing.
-type SyncConfig struct {
+// SyncTimingConfig controls Quarterdeck synchronization and reauthentication timing.
+type SyncTimingConfig struct {
 	SyncTimeout                time.Duration `split_words:"true" default:"20s" desc:"maximum duration for each synchronization request to Quarterdeck"`
 	BackoffTimeout             time.Duration `split_words:"true" default:"5m" desc:"maximum total duration allowed for synchronization retries"`
 	BackoffInitialInterval     time.Duration `split_words:"true" default:"5s" desc:"initial delay between synchronization retries"`
@@ -25,18 +25,18 @@ type SyncConfig struct {
 	ReauthTimeout              time.Duration `split_words:"true" default:"5s" desc:"maximum duration for reauthentication requests to Quarterdeck"`
 }
 
-// NewDefaultSyncConfig constructs a sync configuration from the confire defaults
-// declared on SyncConfig.
-func NewDefaultSyncConfig() (SyncConfig, error) {
-	var config SyncConfig
+// NewDefaultSyncTimingConfig constructs a sync timing configuration from the confire defaults
+// declared on SyncTimingConfig.
+func NewDefaultSyncTimingConfig() (SyncTimingConfig, error) {
+	var config SyncTimingConfig
 	if err := confire.Process("quarterdeck", &config, confire.NoEnv); err != nil {
-		return SyncConfig{}, fmt.Errorf("could not load default Quarterdeck sync config: %w", err)
+		return SyncTimingConfig{}, fmt.Errorf("could not load default Quarterdeck sync config: %w", err)
 	}
 	return config, nil
 }
 
 // Validate checks that all configured durations and backoff parameters are usable.
-func (c SyncConfig) Validate() (err error) {
+func (c SyncTimingConfig) Validate() (err error) {
 	if c.SyncTimeout <= 0 {
 		err = confire.Join(err, confire.Invalid("quarterdeck", "syncTimeout", "must be positive"))
 	}
@@ -67,13 +67,13 @@ func (c SyncConfig) Validate() (err error) {
 	return err
 }
 
-// WithSyncConfig replaces the default timing configuration with the supplied
-// config, which must contain valid values for every field. Use NewDefaultSyncConfig
+// WithSyncTimingConfig replaces the default timing configuration with the supplied
+// config, which must contain valid values for every field. Use NewDefaultSyncTimingConfig
 // to start from the package defaults and change selected values.
-func WithSyncConfig(config SyncConfig) Option {
+func WithSyncTimingConfig(config SyncTimingConfig) Option {
 	return func(q *Quarterdeck) error {
 		if err := config.Validate(); err != nil {
-			return fmt.Errorf("invalid Quarterdeck sync config: %w", err)
+			return fmt.Errorf("invalid Quarterdeck sync timing config: %w", err)
 		}
 		q.syncConfig = config
 		return nil

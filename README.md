@@ -215,6 +215,24 @@ Bearer authentication takes precedence when both credentials are present.
 Requests authenticated after an expired access token is refreshed with cookies
 are reported as cookie authentication.
 
+### Synchronization
+
+By default, `quarterdeck.New` synchronizes immediately, then starts a background sync loop. The loop schedules refreshes for the JWKS cache expiry, or uses `SyncInterval` (1 hour by default) when the response has no expiry. `MinSyncInterval` (20 seconds by default) is a floor for scheduled refreshes; it does not delay the initial sync. `SyncTimeout` defaults to 20 seconds per request, and `BackoffTimeout` limits the total retry period for a sync.
+
+Customize timing by starting from the package defaults and passing the result to `WithSyncTimingConfig`:
+
+```go
+syncTiming, err := quarterdeck.NewDefaultSyncTimingConfig()
+if err != nil {
+    return err
+}
+syncTiming.MinSyncInterval = 30 * time.Second
+
+qd, err := quarterdeck.New(quarterdeckURL, audience,
+    quarterdeck.WithSyncTimingConfig(syncTiming),
+)
+```
+
 ### Authorization
 
 Authorization checks to make sure the claims have all permissions specified when setting up the middleware. For example, a rest endpoint might be set up as follows:

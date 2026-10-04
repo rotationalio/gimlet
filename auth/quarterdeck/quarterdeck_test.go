@@ -78,8 +78,8 @@ func TestQuarterdeck(t *testing.T) {
 	require.NoError(t, err, "could not synchronize Quarterdeck")
 }
 
-// Ensures every sync config field can be set from the environment.
-func TestQuarterdeckSyncConfigFromEnvironment(t *testing.T) {
+// Ensures every sync timing config field can be set from the environment.
+func TestQuarterdeckSyncTimingConfigFromEnvironment(t *testing.T) {
 	env := map[string]string{
 		"QUARTERDECK_SYNC_TIMEOUT":                 "31s",
 		"QUARTERDECK_BACKOFF_TIMEOUT":              "6m",
@@ -95,10 +95,10 @@ func TestQuarterdeckSyncConfigFromEnvironment(t *testing.T) {
 		t.Setenv(key, value)
 	}
 
-	var config quarterdeck.SyncConfig
+	var config quarterdeck.SyncTimingConfig
 	err := confire.Process("quarterdeck", &config)
 	require.NoError(t, err)
-	require.Equal(t, quarterdeck.SyncConfig{
+	require.Equal(t, quarterdeck.SyncTimingConfig{
 		SyncTimeout:                31 * time.Second,
 		BackoffTimeout:             6 * time.Minute,
 		BackoffInitialInterval:     7 * time.Second,
@@ -115,83 +115,83 @@ func TestQuarterdeckSyncConfigFromEnvironment(t *testing.T) {
 		authtest.Audience,
 		quarterdeck.NoSync(),
 		quarterdeck.NoRun(),
-		quarterdeck.WithSyncConfig(config),
+		quarterdeck.WithSyncTimingConfig(config),
 	)
 	require.NoError(t, err, "New should accept and apply the environment-loaded configuration")
 }
 
-// Ensures that validation checks for every field in the sync config are enforced.
-func TestQuarterdeckSyncConfigValidation(t *testing.T) {
+// Ensures that validation checks for every field in the sync timing config are enforced.
+func TestQuarterdeckSyncTimingConfigValidation(t *testing.T) {
 	tests := []struct {
 		name  string
 		field string
-		set   func(*quarterdeck.SyncConfig)
+		set   func(*quarterdeck.SyncTimingConfig)
 	}{
 		{
 			name:  "sync timeout must be positive",
 			field: "syncTimeout",
-			set:   func(c *quarterdeck.SyncConfig) { c.SyncTimeout = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.SyncTimeout = 0 },
 		},
 		{
 			name:  "backoff timeout must be positive",
 			field: "backoffTimeout",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffTimeout = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffTimeout = 0 },
 		},
 		{
 			name:  "initial backoff interval must be positive",
 			field: "backoffInitialInterval",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffInitialInterval = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffInitialInterval = 0 },
 		},
 		{
 			name:  "randomization factor must not be negative",
 			field: "backoffRandomizationFactor",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffRandomizationFactor = -0.1 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffRandomizationFactor = -0.1 },
 		},
 		{
 			name:  "randomization factor must be less than one",
 			field: "backoffRandomizationFactor",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffRandomizationFactor = 1 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffRandomizationFactor = 1 },
 		},
 		{
 			name:  "randomization factor cannot be NaN",
 			field: "backoffRandomizationFactor",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffRandomizationFactor = math.NaN() },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffRandomizationFactor = math.NaN() },
 		},
 		{
 			name:  "multiplier must be greater than one",
 			field: "backoffMultiplier",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffMultiplier = 1 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffMultiplier = 1 },
 		},
 		{
 			name:  "multiplier cannot be NaN",
 			field: "backoffMultiplier",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffMultiplier = math.NaN() },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffMultiplier = math.NaN() },
 		},
 		{
 			name:  "maximum backoff must not be below initial interval",
 			field: "backoffMaxInterval",
-			set:   func(c *quarterdeck.SyncConfig) { c.BackoffMaxInterval = time.Second },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.BackoffMaxInterval = time.Second },
 		},
 		{
 			name:  "sync interval must be positive",
 			field: "syncInterval",
-			set:   func(c *quarterdeck.SyncConfig) { c.SyncInterval = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.SyncInterval = 0 },
 		},
 		{
 			name:  "minimum sync interval must be positive",
 			field: "minSyncInterval",
-			set:   func(c *quarterdeck.SyncConfig) { c.MinSyncInterval = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.MinSyncInterval = 0 },
 		},
 		{
 			name:  "reauth timeout must be positive",
 			field: "reauthTimeout",
-			set:   func(c *quarterdeck.SyncConfig) { c.ReauthTimeout = 0 },
+			set:   func(c *quarterdeck.SyncTimingConfig) { c.ReauthTimeout = 0 },
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := quarterdeck.NewDefaultSyncConfig()
+			config, err := quarterdeck.NewDefaultSyncTimingConfig()
 			require.NoError(t, err)
 			tt.set(&config)
 			require.ErrorContains(t, config.Validate(), tt.field)
@@ -298,7 +298,7 @@ func TestRunMinimumIntervalPreventsTightRetryLoop(t *testing.T) {
 				}, nil
 			})}
 
-			config, err := quarterdeck.NewDefaultSyncConfig()
+			config, err := quarterdeck.NewDefaultSyncTimingConfig()
 			require.NoError(t, err)
 
 			// Make the fallback interval effectively immediate, while setting a long
@@ -320,7 +320,7 @@ func TestRunMinimumIntervalPreventsTightRetryLoop(t *testing.T) {
 				quarterdeck.NoSync(),
 				quarterdeck.NoRun(),
 				quarterdeck.WithClient(client),
-				quarterdeck.WithSyncConfig(config),
+				quarterdeck.WithSyncTimingConfig(config),
 			)
 			require.NoError(t, err)
 			require.NoError(t, qd.Sync(), "initial sync should populate the expired JWKS cache")

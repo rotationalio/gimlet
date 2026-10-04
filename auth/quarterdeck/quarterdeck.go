@@ -56,7 +56,7 @@ type Quarterdeck struct {
 
 	// HTTP requests, sync timing, and cache control
 	client     *http.Client
-	syncConfig SyncConfig
+	syncConfig SyncTimingConfig
 	etag       map[string]string    // ETag for caching purposes
 	expires    map[string]time.Time // Expiration time for caching purposes
 }
@@ -64,7 +64,7 @@ type Quarterdeck struct {
 var _ auth.Authenticator = (*Quarterdeck)(nil)
 
 func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error) {
-	syncConfig, err := NewDefaultSyncConfig()
+	syncConfig, err := NewDefaultSyncTimingConfig()
 	if err != nil {
 		return nil, fmt.Errorf("could not initialize Quarterdeck sync config: %w", err)
 	}
