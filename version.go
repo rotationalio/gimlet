@@ -13,7 +13,7 @@ import (
 const (
 	VersionMajor         = 1
 	VersionMinor         = 11
-	VersionPatch         = 0
+	VersionPatch         = 1
 	VersionReleaseLevel  = "final"
 	VersionReleaseNumber = 0
 )
