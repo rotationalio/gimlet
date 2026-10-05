@@ -68,8 +68,12 @@ func (s *Quarterdeck) Do(req *http.Request, data interface{}) (rep *http.Respons
 	defer rep.Body.Close()
 
 	if rep.StatusCode < 200 || rep.StatusCode >= 300 {
-		// If the status coded is 304 Not Modified, return a use cache error message
+		// A 304 still carries cache metadata. Refresh the expiry so Run does not
+		// repeatedly schedule requests against an already-expired cache entry.
 		if rep.StatusCode == http.StatusNotModified {
+			if err = s.updateCache(req.URL.String(), rep); err != nil {
+				return nil, fmt.Errorf("could not parse response headers: %w", err)
+			}
 			return nil, auth.ErrNotModified
 		}
 
@@ -87,27 +91,8 @@ func (s *Quarterdeck) Do(req *http.Request, data interface{}) (rep *http.Respons
 		return nil, fmt.Errorf("[%d] %s", rep.StatusCode, http.StatusText(rep.StatusCode))
 	}
 
-	// Parse the cache control headers
-	var directive *httpcc.ResponseDirective
-	if directive, err = httpcc.Response(rep); err != nil {
+	if err = s.updateCache(req.URL.String(), rep); err != nil {
 		return nil, fmt.Errorf("could not parse response headers: %w", err)
-	}
-
-	// Set the ETag if it's available in the response headers
-	if etag, ok := directive.ETag(); ok {
-		s.etag[req.URL.String()] = etag
-	}
-
-	// Determine when the cache should expire and we should request the data again.
-	if expires, ok := directive.Expires(); ok {
-		// Prioritize the Expires header from the Cache-Control directive
-		s.expires[req.URL.String()] = expires
-	} else if maxAge, ok := directive.MaxAge(); ok {
-		// Otherwise, use the Max-Age directive from Cache-Control
-		s.expires[req.URL.String()] = time.Now().Add(time.Duration(maxAge) * time.Second)
-	} else {
-		// Default to the current time plus the sync interval if no expiration is set
-		s.expires[req.URL.String()] = time.Now().Add(SyncInterval)
 	}
 
 	// Deserialize the JSON data from the body
@@ -129,4 +114,32 @@ func (s *Quarterdeck) Do(req *http.Request, data interface{}) (rep *http.Respons
 		}
 	}
 	return rep, nil
+}
+
+// updateCache parses the cache control headers and saves metadata for the URL.
+func (s *Quarterdeck) updateCache(url string, rep *http.Response) (err error) {
+	// Parse the cache-control headers.
+	var directive *httpcc.ResponseDirective
+	if directive, err = httpcc.Response(rep); err != nil {
+		return err
+	}
+
+	// Set the ETag if it's available in the response headers.
+	if etag, ok := directive.ETag(); ok {
+		s.etag[url] = etag
+	}
+
+	// Determine when the cache should expire and we should request the data again.
+	if expires, ok := directive.Expires(); ok {
+		// Prioritize the Expires header from the Cache-Control directive.
+		s.expires[url] = expires
+	} else if maxAge, ok := directive.MaxAge(); ok {
+		// Otherwise, use the Max-Age directive from Cache-Control.
+		s.expires[url] = time.Now().Add(time.Duration(maxAge) * time.Second)
+	} else {
+		// Default to the current time plus the configured sync interval if no expiration is set.
+		s.expires[url] = time.Now().Add(s.syncConfig.SyncInterval)
+	}
+
+	return nil
 }

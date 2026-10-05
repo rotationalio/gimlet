@@ -100,6 +100,8 @@ go.opentelemetry.io/otel/sdk/metric v1.45.0 h1:oVFszMfyj1Am6s24Vtc7wBb8BKLcwepJj
 go.opentelemetry.io/otel/sdk/metric v1.45.0/go.mod h1:vUWUxDZvu1WVRj8JA8S0AdhsPrZoDpA2DdZauIh4mDA=
 go.opentelemetry.io/otel/trace v1.45.0 h1:l/mP6Uv7oNO7/TblbhpbgMidxhq1uO/rPsikOyVhxag=
 go.opentelemetry.io/otel/trace v1.45.0/go.mod h1:qoJJA2xNMnxRrdISU/kLtfUH2wNeQbiv+jhs/CxI8bc=
+go.rtnl.ai/confire v1.2.0 h1:Q/UexW6tdaNwulwNOrzSFhgHEYMugg1jFPxWA6u1K7w=
+go.rtnl.ai/confire v1.2.0/go.mod h1:g1rNOgKnnC0eHPU4kNKzPvxZmkeexU0cbvgO/SHDoSU=
 go.rtnl.ai/ulid v1.3.0 h1:CvZjj8I9OtH71k+cA3gDCSt+MSww5S2xy4ZqubXFZnY=
 go.rtnl.ai/ulid v1.3.0/go.mod h1:F95yPYwEEZdz5sM4GC6buziff6xD+7XVcGZ/8n37Cn0=
 go.rtnl.ai/x v1.21.0 h1:OP7mTsuOXkosXqTDQ0ER4PakUmd1+Gu0UsapUlmcKbg=

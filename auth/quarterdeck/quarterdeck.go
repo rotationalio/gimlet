@@ -22,25 +22,6 @@ import (
 	"go.rtnl.ai/x/rlog"
 )
 
-const (
-	// Default timeout for synchronization requests to Quarterdeck.
-	SyncTimeout = 20 * time.Second
-
-	// Backoff settings for synchronization requests to Quarterdeck.
-	BackoffTimeout             = 5 * time.Minute
-	BackoffInitialInterval     = 5 * time.Second
-	BackoffRandomizationFactor = 0.07
-	BackoffMultiplier          = 2.0
-	BackoffMaxInterval         = 60 * time.Second
-
-	// Default interval for synchronization of JWKS and OpenID configuration if not
-	// specified by the Expires header.
-	SyncInterval = 1 * time.Hour
-
-	// Default timeout for reauthentication requests to Quarterdeck.
-	ReauthTimeout = 5 * time.Second
-)
-
 var (
 	ErrNoLoginURL     = errors.New("no login URL specified or authentication endpoint set in OIDC discovery data")
 	ErrNoReauthURL    = errors.New("no reauthentication URL specified or reauthentication endpoint set in OIDC discovery data")
@@ -73,26 +54,33 @@ type Quarterdeck struct {
 	syncInit       bool
 	runInit        bool
 
-	// HTTP requests and Cache Control
-	client  *http.Client
-	etag    map[string]string    // ETag for caching purposes
-	expires map[string]time.Time // Expiration time for caching purposes
+	// HTTP requests, sync timing, and cache control
+	client     *http.Client
+	syncConfig SyncTimingConfig
+	etag       map[string]string    // ETag for caching purposes
+	expires    map[string]time.Time // Expiration time for caching purposes
 }
 
 var _ auth.Authenticator = (*Quarterdeck)(nil)
 
 func New(configURL, audience string, opts ...Option) (qd *Quarterdeck, err error) {
+	syncConfig, err := NewDefaultSyncTimingConfig()
+	if err != nil {
+		return nil, fmt.Errorf("could not initialize Quarterdeck sync config: %w", err)
+	}
+
 	qd = &Quarterdeck{
-		jwksURL:   "",
-		configURL: configURL,
-		audience:  audience,
-		issuer:    "",
-		loginURL:  &ConfigURL{},
-		reauthURL: &ConfigURL{},
-		etag:      make(map[string]string),
-		expires:   make(map[string]time.Time),
-		syncInit:  true,
-		runInit:   true,
+		jwksURL:    "",
+		configURL:  configURL,
+		audience:   audience,
+		issuer:     "",
+		loginURL:   &ConfigURL{},
+		reauthURL:  &ConfigURL{},
+		etag:       make(map[string]string),
+		expires:    make(map[string]time.Time),
+		syncConfig: syncConfig,
+		syncInit:   true,
+		runInit:    true,
 	}
 
 	for _, opt := range opts {
@@ -244,16 +232,7 @@ func (s *Quarterdeck) NotAuthorized(c *gin.Context) error {
 // and scheduling the next synchronization. Running this more than one time will
 // run more than one synchronization loop.
 func (s *Quarterdeck) Run() {
-	// Get the expiration time for the JWKS
-	wait := SyncInterval
-	if expires, ok := s.Expires(s.jwksURL); ok {
-		wait = time.Until(expires)
-		rlog.DebugAttrs(context.Background(), "jwks will expire sooner than sync interval",
-			slog.Time("expires", expires),
-			slog.Duration("wait", wait),
-			slog.Duration("syncInterval", SyncInterval),
-		)
-	}
+	wait := s.nextSyncWait()
 
 	// Synchronize then schedule the next synchronization
 	time.AfterFunc(wait, func() {
@@ -264,19 +243,38 @@ func (s *Quarterdeck) Run() {
 	})
 }
 
+// nextSyncWait returns the time until the JWKS expires, bounded below by the
+// configured minimum sync interval.
+func (s *Quarterdeck) nextSyncWait() time.Duration {
+	wait := s.syncConfig.SyncInterval
+	if expires, ok := s.Expires(s.jwksURL); ok {
+		wait = time.Until(expires)
+	}
+	if wait < s.syncConfig.MinSyncInterval {
+		wait = s.syncConfig.MinSyncInterval
+	}
+
+	rlog.DebugAttrs(context.Background(), "scheduled next JWKS synchronization",
+		slog.Duration("wait", wait),
+		slog.Duration("minSyncInterval", s.syncConfig.MinSyncInterval),
+		slog.Duration("syncInterval", s.syncConfig.SyncInterval),
+	)
+	return wait
+}
+
 // Synchronizes the JWKS and OpenID configuration from Quarterdeck, respecting the
 // cache-control headers and ETag for caching purposes.
 func (s *Quarterdeck) Sync() (err error) {
 	// Maximum time limit to allow synchronization to complete
-	ctx, cancel := context.WithTimeout(context.Background(), BackoffTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.syncConfig.BackoffTimeout)
 	defer cancel()
 
 	// Use exponential backoff to retry synchronization in case of errors
 	delay := backoff.NewExponentialBackOff()
-	delay.InitialInterval = BackoffInitialInterval
-	delay.RandomizationFactor = BackoffRandomizationFactor
-	delay.Multiplier = BackoffMultiplier
-	delay.MaxInterval = BackoffMaxInterval
+	delay.InitialInterval = s.syncConfig.BackoffInitialInterval
+	delay.RandomizationFactor = s.syncConfig.BackoffRandomizationFactor
+	delay.Multiplier = s.syncConfig.BackoffMultiplier
+	delay.MaxInterval = s.syncConfig.BackoffMaxInterval
 
 	opts := []backoff.RetryOption{
 		backoff.WithBackOff(delay),
@@ -299,7 +297,7 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 	now := time.Now()
 	updated := false
 
-	ctx, cancel := context.WithTimeout(context.Background(), SyncTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.syncConfig.SyncTimeout)
 	defer cancel()
 
 	// Fetch the OpenID configuration from Quarterdeck
@@ -310,7 +308,7 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 			case errors.Is(err, auth.ErrNotModified):
 				// Ignore 304 Not Modified errors
 			case errors.Is(err, auth.ErrRateLimited):
-				// Do not retry if we get rate limited, just try again in [SyncInterval]
+				// Do not retry within this sync attempt; Run enforces the minimum sync interval.
 				return updated, backoff.NoRetry(err)
 			default:
 				// We can retry for any other errors
@@ -353,7 +351,7 @@ func (s *Quarterdeck) sync() (_ bool, err error) {
 			case errors.Is(err, auth.ErrNotModified):
 				// Ignore 304 Not Modified errors
 			case errors.Is(err, auth.ErrRateLimited):
-				// Do not retry if we get rate limited, just try again in [SyncInterval]
+				// Do not retry within this sync attempt; Run enforces the minimum sync interval.
 				return updated, backoff.NoRetry(err)
 			default:
 				return updated, fmt.Errorf("could not fetch JWKS: %w", err)
@@ -455,6 +453,9 @@ func (s *Quarterdeck) Reauthenticate(ctx context.Context, accessToken, refreshTo
 	if reauthURL = s.reauthURL.String(); reauthURL == "" {
 		return nil, ErrNoReauthURL
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.syncConfig.ReauthTimeout)
+	defer cancel()
 
 	out = &TokenRequest{RefreshToken: refreshToken}
 	if req, err = s.NewRequest(ctx, http.MethodPost, reauthURL, out); err != nil {
