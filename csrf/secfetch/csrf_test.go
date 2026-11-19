@@ -148,15 +148,29 @@ func TestFallbackRequiresNoRequestMetadata(t *testing.T) {
 // Rejects a request when the fallback runs and does not approve it.
 func TestFallbackRejectsRequest(t *testing.T) {
 	fallbackCalls := 0
-	recorder := serve(t, http.MethodPost, make(http.Header),
+	downstreamCalled := false
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/action", csrf.Middleware(
 		csrf.WithFallback(func(*gin.Context) bool {
 			fallbackCalls++
+			// User forgot to abort here.
 			return false
 		}),
-	)
+	), func(c *gin.Context) {
+		// The CSRF middleware should reject the request and not call the
+		// downstream handler.
+		downstreamCalled = true
+		c.String(http.StatusOK, "protected response")
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/action", nil))
 
 	require.Equal(t, 1, fallbackCalls)
 	assertCSRFRejected(t, recorder, csrf.HeaderError)
+	require.False(t, downstreamCalled, "rejected fallback must abort the Gin handler chain")
+	require.NotContains(t, recorder.Body.String(), "protected response")
 }
 
 // Confirms safe methods bypass Fetch Metadata checks while writes reject cross-site requests.

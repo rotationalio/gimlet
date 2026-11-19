@@ -225,6 +225,40 @@ func TestAuthenticateWithUnauthenticator(t *testing.T) {
 		require.Empty(t, accessToken, "should not set access token in context when access token is invalid")
 	})
 
+	t.Run("NoAbortDoesNotRunDownstreamHandler", func(t *testing.T) {
+		// When a dev uses the Unauthenticator interface and forgets to abort
+		// unauthorized requests it should not run the downstream handler.
+
+		defer mock.Reset()
+		mock.OnNotAuthorized = func(c *gin.Context) error {
+			c.Redirect(http.StatusTemporaryRedirect, "/login")
+			// Use forgets c.Abort() here.
+			return nil
+		}
+		mock.OnVerify = func(accessToken string) (*auth.Claims, error) {
+			return nil, errors.New("token signed with invalid keys")
+		}
+
+		router := gin.New()
+		router.Use(authenticate)
+		router.GET("/", func(c *gin.Context) {
+			// User should not get here, even when OnNotAuthorized does not
+			// call c.Abort().
+			c.String(http.StatusOK, "unauthorized access occurred")
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer notauthorizedtobehere")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusTemporaryRedirect, w.Code)
+		require.Equal(t, "/login", w.Result().Header.Get("Location"))
+		require.NotContains(t, w.Body.String(), "unauthorized access occurred", "downstream handler must not allow unauthorized access")
+		mock.AssertCalled(t, "Verify", 1)
+		mock.AssertCalled(t, "NotAuthorized", 1)
+	})
+
 	t.Run("Authenticated", func(t *testing.T) {
 		defer mock.Reset()
 		mock.OnNotAuthorized = func(c *gin.Context) error {

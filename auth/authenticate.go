@@ -145,8 +145,12 @@ func Authenticate(auth Authenticator) (_ gin.HandlerFunc, err error) {
 					return
 				}
 
-				// Expect that onLoginFailure handled the request with the appropriate
-				// response code and abort if necessary.
+				// onLoginFailure should have handled the request with the
+				// appropriate status code and an abort, but if it did not,
+				// we call abort here without changing the status code or
+				// adding any errors to ensure that the next middleware does
+				// not run.
+				c.Abort()
 				return
 			}
 
