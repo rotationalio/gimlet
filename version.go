@@ -12,8 +12,8 @@ import (
 // ensure compatibility with third party libraries.
 const (
 	VersionMajor         = 1
-	VersionMinor         = 11
-	VersionPatch         = 1
+	VersionMinor         = 12
+	VersionPatch         = 0
 	VersionReleaseLevel  = "final"
 	VersionReleaseNumber = 0
 )
